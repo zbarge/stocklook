@@ -27,10 +27,10 @@ Passwords & secrets are always cached safely using the keyring library.
 
 Update os.environ with the following credentials to have them auto-update config:
 
-coinbase: COINBASE_KEY
-poloniex: POLONIEX_KEY
-GDAX: GDAX_KEY
-GMAIL: STOCKLOOK_EMAIL
+- coinbase: COINBASE_KEY
+- poloniex: POLONIEX_KEY
+- GDAX: GDAX_KEY
+- GMAIL: STOCKLOOK_EMAIL
 
 You can update global configuration like so:
 
@@ -103,9 +103,9 @@ Accessing Poloniex chart data:
 To-do List:
 -----------
 
-    [] Add tests for gdax, coinbase
-    [] fix yahoo api
-    [] add Poloniex account management code
+[] Add tests for gdax, coinbase
+[] fix yahoo api
+[] add Poloniex account management code
 
 
 
