@@ -13,10 +13,10 @@ I will lean on pre-built libraries if they're well-maintained and/or solve a sig
 APIs:
 ---------
 
-Coinbase: light wrapper around coinbase client
-Gdax: custom API/database wrapper for managing account/trading and price history
-Poloniex: custom API/wrapper for getting price history.
-Yahoo Finance (broken)
+- Coinbase: light wrapper around coinbase client
+- Gdax: custom API/database wrapper for managing account/trading and price history
+- Poloniex: custom API/wrapper for getting price history.
+- Yahoo Finance (broken)
 
 
 Configuration:
@@ -103,9 +103,9 @@ Accessing Poloniex chart data:
 To-do List:
 -----------
 
-[] Add tests for gdax, coinbase
-[] fix yahoo api
-[] add Poloniex account management code
+- [] Add tests for gdax, coinbase
+- [] fix yahoo api
+- [] add Poloniex account management code
 
 
 
