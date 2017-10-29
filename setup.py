@@ -15,7 +15,7 @@ dependency_links = []
 setup(
     name="stocklook",
     packages=find_packages("."),
-    description='Crpytocurrency and stock exchange analysis toolkit',
+    description='Cryptocurrency and stock exchange analysis toolkit',
     long_description=readme,
     url='https://github.com/zbarge/stocklook/',
     install_requires=install_requires,
