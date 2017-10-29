@@ -31,8 +31,9 @@ tests/*.db
 data/*.csv
 data/*.txt
 data/*.sql
-data/*.html
-data/*.sqlite3
+*.html
+*.csv
+*.sqlite3
 .idea*
 data/test*
 
