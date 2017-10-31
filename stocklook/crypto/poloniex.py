@@ -7,49 +7,9 @@ import json
 import time
 import hmac, hashlib
 import urllib.request as urllib2
-
-# Time-related helper methods
-
-
-def timestamp_from_utc(utc_time):
-    return pd.Timestamp(datetime.utcfromtimestamp(utc_time).strftime('%Y-%m-%d %H:%M:%S'))
-
-
-def timestamp_to_utc(time_stamp):
-    return calendar.timegm(pd.Timestamp(time_stamp).utctimetuple())
-
-
-def create_timestamp(datestr, format="%Y-%m-%d %H:%M:%S"):
-    return time.mktime(time.strptime(datestr, format))
-
-
-def three_days_ago():
-    return datetime.now() - pd.DateOffset(days=3)
-
-
-def today():
-    return datetime.now() - pd.DateOffset(hours=datetime.now().hour, minutes=datetime.now().minute)
-
-
-def this_month():
-    return datetime.now() - pd.DateOffset(days=datetime.now().day)
-
-
-def five_minutes_ago():
-    return datetime.now() - pd.DateOffset(minutes=5)
-
-
-def one_hour_ago():
-    return datetime.now() - pd.DateOffset(hours=1)
-
-
-def four_hours_ago():
-    return datetime.now() - pd.DateOffset(hours=4)
-
-
-def one_week_ago():
-    return datetime.now() - pd.DateOffset(weeks=1)
-
+from stocklook.utils.timetools import (timestamp_from_utc,
+                                       timestamp_to_utc_int as timestamp_to_utc,
+                                       create_timestamp, today, one_week_ago)
 
 POLONIEX_DATA_TYPE_MAP = {
     'lowestAsk': float,
@@ -477,6 +437,8 @@ if __name__ == '__main__':
     #res = poloniex_return_chart_data(USDT_BTC)
     #print(res.head(10))
     import os
+    key = None
+    secret = None
     chart_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'usdt_btc.csv')
     p = Poloniex(key, secret)
 

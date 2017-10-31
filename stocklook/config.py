@@ -1,6 +1,7 @@
 import os
 import logging
 
+DEFAULT_LOG_LVL = logging.DEBUG
 # Environment variables to load
 # into config dictionary.
 env = os.environ
@@ -40,7 +41,7 @@ config = dict(GMAIL_EMAIL=env.get(STOCKLOOK_EMAIL, None),
                                     'password': None,
                                     'database': database or None
                                    },
-              LOG_LEVEL=logging.DEBUG,
+              LOG_LEVEL=DEFAULT_LOG_LVL,
               PYTZ_TIMEZONE='US/Pacific',
 
               )
@@ -53,15 +54,25 @@ def update_config(config_dict):
     to auto set usernames and API keys.
 
     API secrets/passphrases and passwords
-    should not be stored manually as keyring handles
+    should not be hard-coded into files as keyring handles
     secure storage and these will be requested
     for input manually if not already found in secure storage.
     :param config_dict:
     :return:
     """
     config.update(config_dict)
-    log_lvl = config.get('LOG_LEVEL', logging.INFO)
+
+    log_lvl = config.get('LOG_LEVEL', DEFAULT_LOG_LVL)
     logging.basicConfig(level=log_lvl)
+
+    dirs = [v for k, v in config.items()
+            if str(k).endswith('DIRECTORY')]
+    for d in dirs:
+        try:
+            if not os.path.exists(d):
+                os.makedirs(d)
+        except:
+            pass
 
 
 # Default log level set here to INFO
@@ -69,4 +80,4 @@ def update_config(config_dict):
 # it will override this default.
 # Also probably subsequent calls to logging.basicCOnfig would override
 # this.
-logging.basicConfig(level=config.get('LOG_LEVEL', logging.INFO))
+logging.basicConfig(level=config.get('LOG_LEVEL', DEFAULT_LOG_LVL))
