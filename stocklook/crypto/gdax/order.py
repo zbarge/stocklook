@@ -339,7 +339,7 @@ class GdaxOrder:
         """
         return self.status in ['canceled', 'rejected']
 
-    def is_filled(self) -> bool:
+    def is_filled(self, update=True) -> bool:
         """
         Returns True when GdaxOrder.status is 'done'.
         Calls order status from API if the order has
@@ -350,8 +350,8 @@ class GdaxOrder:
             return False
         elif self.status and self.status == 'done':
             return True
-
-        self.update()
+        if update:
+            self.update()
 
         if self.status and self.status == 'done':
             return True
@@ -419,8 +419,9 @@ class GdaxOrder:
             raise GdaxOrderCancellationError(fail_reason)
 
         self.status = 'canceled'
+        return res
 
-    def post(self, sql_obj=None):
+    def post(self, sql_obj=None, verify_balance=True):
         """
         Validates then places the order within Gdax via the Gdax.place_order method.
 
@@ -456,32 +457,32 @@ class GdaxOrder:
         if size < .01 and size > 0:
             raise GdaxMinOrderSizeError("Order size must be "
                                         "greater than 0.01, not {}".format(size))
+        if verify_balance:
+            self.gdax.sync_accounts()
 
-        self.gdax.sync_accounts()
+            # Buy orders need to have enough funds
+            # in the base currency account to cover the total.
+            if self.side == GdaxOrderSides.BUY:
+                acc = self.gdax.get_account(self.base_currency)
+                val = acc.balance
+                spend = self.total_spend
 
-        # Buy orders need to have enough funds
-        # in the base currency account to cover the total.
-        if self.side == GdaxOrderSides.BUY:
-            acc = self.gdax.get_account(self.base_currency)
-            val = acc.balance
-            spend = self.total_spend
+                if spend > val:
+                    msg = "spend: {}, balance: {} coin: {}" \
+                          "".format(spend, val, self.coin_currency)
+                    raise GdaxInsufficientFundsError(msg)
 
-            if spend > val:
-                msg = "spend: {}, balance: {} coin: {}" \
-                      "".format(spend, val, self.coin_currency)
-                raise GdaxInsufficientFundsError(msg)
+            # Sell orders need to have enough coin
+            # available to sell.
+            elif self.side == GdaxOrderSides.SELL:
+                size = float(self.size)
+                acc = self.gdax.get_account(self.coin_currency)
+                bal = float(acc.balance)
 
-        # Sell orders need to have enough coin
-        # available to sell.
-        elif self.side == GdaxOrderSides.SELL:
-            size = float(self.size)
-            acc = self.gdax.get_account(self.coin_currency)
-            bal = float(acc.balance)
-
-            if size > bal:
-                msg = "sell: {}, balance: {}, coin: {}" \
-                      "".format(size, bal, self.coin_currency)
-                raise GdaxInsufficientFundsError(msg)
+                if size > bal:
+                    msg = "sell: {}, balance: {}, coin: {}" \
+                          "".format(size, bal, self.coin_currency)
+                    raise GdaxInsufficientFundsError(msg)
 
         # Call API - Green light if we made it here.
         res = self.gdax.post_order(self.json)

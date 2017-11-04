@@ -5,22 +5,99 @@
 # Live order book updated from the gdax Websocket Feed
 
 import pickle
-from decimal import Decimal
-
 from bintrees import RBTree
-
 from stocklook.crypto.gdax.feeds.websocket_client import GdaxWebsocketClient
 
 
+class BookSnapshot:
+    """
+    Wraps a dictionary outputted by BookFeed
+    with helper methods to access bids/asks/walls/etc.
+    """
+    def __init__(self, book_dict, book_feed):
+        self.book_dict = book_dict
+        self.book_feed = book_feed
+
+    @property
+    def d(self):
+        return self.book_dict
+
+    @property
+    def bids(self):
+        """
+        Returns a list of lists containing bid info
+        price, qty, order_id
+        :return:
+        """
+        return self.book_dict['bids']
+
+    @property
+    def highest_bid(self):
+        return self.bids[0]
+
+    @property
+    def lowest_ask(self):
+        return self.asks[0]
+
+    @property
+    def asks(self):
+        return self.book_dict['asks']
+
+    def calculate_wall_size(self, walls=None, min_size=20, within_percent=0.01, measure_size=7):
+        if measure_size >0:
+            measure_size = -measure_size
+
+        if walls is None:
+            bid_walls, sell_walls = self.get_walls(min_size, within_percent=within_percent)
+            walls = bid_walls + sell_walls
+        elif len(walls) == 2:
+            walls = walls[0] + walls[1]
+
+        wall_sort = sorted(walls, key=lambda x: x[1], reverse=True)[measure_size:]
+        return sum([w[1] for w in wall_sort]) / len(wall_sort)
+
+    def refresh(self):
+        self.book_dict = self.book_feed.get_current_book()
+        self.bids.reverse()
+
+    def get_spread_wall(self, wall_qty=50):
+        pass
+
+    def get_walls(self, size, within_percent=0.01):
+        return self.get_bid_walls(size, within_percent), \
+               self.get_ask_walls(size, within_percent)
+
+    def get_bid_walls(self, size, within_percent=0.01):
+        bids = self.bids
+        price = float(bids[0][0])
+        price -= (price*within_percent)
+
+        return [b for b in bids
+                if b[0] >= price
+                and b[1] >= size]
+
+    def get_ask_walls(self, size, within_percent=0.01):
+        asks = self.asks
+        price = float(asks[0][0])
+        price += (price * within_percent)
+
+        return [a for a in asks
+                if a[0] >=price
+                and a[1] >= size]
+
+    def get_spread(self):
+        return self.asks[0] - self.bids[0]
+
+
 class GdaxBookFeed(GdaxWebsocketClient):
-    def __init__(self, product_id='LTC-USD', log_to=None, gdax=None):
+    def __init__(self, product_id='LTC-USD', log_to=None, gdax=None, auth=True):
 
         if gdax is None:
             from stocklook.crypto.gdax.api import Gdax
             gdax = Gdax()
 
         super(GdaxBookFeed, self).__init__(products=product_id,
-                                           auth=True,
+                                           auth=auth,
                                            api_key=gdax.api_key,
                                            api_secret=gdax.api_secret,
                                            api_passphrase=gdax.api_passphrase)
@@ -68,15 +145,15 @@ class GdaxBookFeed(GdaxWebsocketClient):
                 self.add({
                     'id': bid[2],
                     'side': 'buy',
-                    'price': Decimal(bid[0]),
-                    'size': Decimal(bid[1])
+                    'price': float(bid[0]),
+                    'size': float(bid[1])
                 })
             for ask in res['asks']:
                 self.add({
                     'id': ask[2],
                     'side': 'sell',
-                    'price': Decimal(ask[0]),
-                    'size': Decimal(ask[1])
+                    'price': float(ask[0]),
+                    'size': float(ask[1])
                 })
             self._sequence = res['sequence']
 
@@ -121,8 +198,8 @@ class GdaxBookFeed(GdaxWebsocketClient):
         order = {
             'id': order.get('order_id') or order['id'],
             'side': order['side'],
-            'price': Decimal(order['price']),
-            'size': Decimal(order.get('size') or order['remaining_size'])
+            'price': float(order['price']),
+            'size': float(order.get('size') or order['remaining_size'])
         }
         if order['side'] == 'buy':
             bids = self.get_bids(order['price'])
@@ -140,7 +217,7 @@ class GdaxBookFeed(GdaxWebsocketClient):
             self.set_asks(order['price'], asks)
 
     def remove(self, order):
-        price = Decimal(order['price'])
+        price = float(order['price'])
         if order['side'] == 'buy':
             bids = self.get_bids(price)
             if bids is not None:
@@ -159,8 +236,8 @@ class GdaxBookFeed(GdaxWebsocketClient):
                     self.remove_asks(price)
 
     def match(self, order):
-        size = Decimal(order['size'])
-        price = Decimal(order['price'])
+        size = float(order['size'])
+        price = float(order['price'])
 
         if order['side'] == 'buy':
             bids = self.get_bids(price)
@@ -185,11 +262,11 @@ class GdaxBookFeed(GdaxWebsocketClient):
 
     def change(self, order):
         try:
-            new_size = Decimal(order['new_size'])
+            new_size = float(order['new_size'])
         except KeyError:
             return
 
-        price = Decimal(order['price'])
+        price = float(order['price'])
 
         if order['side'] == 'buy':
             bids = self.get_bids(price)
@@ -246,6 +323,13 @@ class GdaxBookFeed(GdaxWebsocketClient):
             for order in this_bid:
                 result['bids'].append([order['price'], order['size'], order['id']])
         return result
+
+    def get_orders_matching_ids(self, order_ids):
+        return [a for a in self._asks
+                if a['id'] in order_ids] +\
+               [b for b in self._bids
+                if b['id'] in order_ids
+        ]
 
     def get_ask(self):
         return self._asks.min_key()

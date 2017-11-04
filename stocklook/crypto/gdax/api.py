@@ -2,7 +2,7 @@ import pandas as pd
 import hmac, hashlib, time, requests, base64, json
 from requests.auth import AuthBase
 from stocklook.utils import rate_limited
-from stocklook.utils.timetools import timestamp_to_iso8601, timestamp_from_utc
+from stocklook.utils.timetools import timestamp_to_iso8601, timestamp_from_utc, timeout_check
 from .account import GdaxAccount
 from .product import GdaxProduct, GdaxProducts
 from time import sleep
@@ -157,14 +157,21 @@ class Gdax:
         self.api_key = key
         self.api_secret = secret
         self.api_passphrase = passphrase
-        self._accounts = dict()
-        self._orders = dict()
-        self._products = dict()
+
+        self._accounts = dict()               # 'GdaxAccount.currency': stocklook.crypto.gdax.account.GdaxAccount
+        self._orders = dict()                 # 'GdaxOrder.id': stocklook.crypto.gdax.order.GdaxOrder
+        self._products = dict()               # 'GdaxProduct.product': stocklook.crypto.gdax.product.GdaxProduct
+        self._timeout_times = dict()          # 'Gdax.caller_method_or_property' : datetime.datetime
+
         self._wallet_auth = wallet_auth
         self._coinbase_client = coinbase_client
+        self.base_url = self.API_URL
+        self.timeout_intervals = dict(
+            accounts=120,
+        )
+
         self._coinbase_accounts = None
         self._db = None
-        self.base_url = self.API_URL
 
         if not all([key, secret, passphrase]):
             self._set_credentials()
@@ -222,8 +229,12 @@ class Gdax:
         within the Gdax._accounts dictionary.
         :return:
         """
-        if not self._accounts:
+        timed_out = timeout_check('accounts',
+                                  t_data=self._timeout_times,
+                                  seconds=self.timeout_intervals['accounts'])
+        if not self._accounts or timed_out:
             self.sync_accounts()
+
         return self._accounts
 
     @property
@@ -460,7 +471,7 @@ class Gdax:
         """
         return self.get('user').json()
 
-    def get_orders(self, order_id=None, paginate=True):
+    def get_orders(self, order_id=None, paginate=True, status='all'):
         """
         Returns a list containing data about orders.
 
@@ -475,6 +486,9 @@ class Gdax:
 
             False will only return the first ~100 orders
 
+        :param status (str, default 'all')
+            'open', 'pending', 'active'
+
         :return:
         """
         if order_id:
@@ -483,7 +497,9 @@ class Gdax:
         else:
             ext = 'orders'
 
-        res = self.get(ext)
+        p = dict(status=status)
+        res = self.get(ext, params=p)
+
         if not paginate:
             return res.json()
 

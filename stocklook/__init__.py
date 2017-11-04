@@ -15,4 +15,4 @@ from stocklook.crypto import (get_bitcoin_price,
 
 
 
-__version__ == '1.0'
+__version__ = '1.0'

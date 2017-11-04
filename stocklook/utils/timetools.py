@@ -12,7 +12,7 @@ log = lg.getLogger(__name__)
 
 # Time-related helper methods
 TZ = 'PYTZ_TIMEZONE'
-
+GLOBAL_TIMEOUT_MAP = dict()
 
 def timestamp_to_local(dt):
     """
@@ -182,6 +182,44 @@ def now():
 def now_local():
     t = datetime.utcnow().utctimetuple()
     return localize_utc_int(timegm(t))
+
+
+def timeout_check(key, t_data=None, seconds=30):
+    """
+    A way to check if a key has timed out. Useful for calling API
+    on an interval rather than calling every time the method is calling.
+
+    :param key: (str)
+        A unique key that one method calls on to check for timeouts.
+
+    :param t_data: (dict, default stocklook.utils.timetools.GLOBAL_TIMEOUT_MAP)
+        A dictionary containing key/values like
+            {'unique_key_for_caller': datetime.datetime}
+        If the key is not in the dict it will be added with
+        the current time.
+
+
+    :param seconds: (int, default 30)
+        The number of seconds
+
+    :return: (bool)
+        True when a timeout has reached.
+        False when a timeout has not been reached.
+    """
+    if t_data is None:
+        t_data = GLOBAL_TIMEOUT_MAP
+
+    n = now()
+    t_out = t_data.get(key, None)
+
+    if t_out is None or n >= t_out + timedelta(seconds=seconds):
+        t_data[key] = n
+        return False if t_out is None else True
+
+    return False
+
+
+
 
 if __name__ == '__main__':
     print(pytz.all_timezones)

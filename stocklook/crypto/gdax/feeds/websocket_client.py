@@ -90,10 +90,9 @@ class GdaxWebsocketClient:
         if self.auth:
             timestamp = str(time())
             message = timestamp + 'GET' + '/users/self'
-            message = message.encode('ascii')
             hmac_key = base64.b64decode(self.api_secret)
-            signature = hmac.new(hmac_key, message, hashlib.sha256)
-            signature_b64 = base64.b64encode(signature.digest())
+            signature = hmac.new(hmac_key, bytes(str(message).encode('utf8')), hashlib.sha256)
+            signature_b64 = base64.standard_b64encode(signature.digest())
             sub_params['signature'] = signature_b64.decode('utf8')
             sub_params['key'] = self.api_key
             sub_params['passphrase'] = self.api_passphrase
