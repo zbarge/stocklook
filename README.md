@@ -59,7 +59,7 @@ You can update global configuration like so:
     }
 
     # method 1
-    update_config()
+    update_config(my_config)
 
     # method 2 (same as method 1)
     config.update(my_config)
