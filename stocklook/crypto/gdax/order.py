@@ -413,7 +413,10 @@ class GdaxOrder:
 
         ext = 'orders/{}'.format(self.id)
         res = self.gdax.delete(ext).json()
-        fail_reason = res.get('message', None)
+        if isinstance(res, dict):
+            fail_reason = res.get('message', None)
+        else:
+            fail_reason = None
 
         if fail_reason:
             raise GdaxOrderCancellationError(fail_reason)
