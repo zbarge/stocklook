@@ -224,7 +224,7 @@ class GdaxMMOrder(GdaxOrder):
             if aggressive:
                 # Aggressive buys need to be near top
                 if my_min >= max_and_step:
-                    return my_min
+                    return adj_price(my_min, increment=True)
                 else:
                     return adj_price(my_min, increment=True)
 
@@ -238,7 +238,7 @@ class GdaxMMOrder(GdaxOrder):
                 if my_min >= min_and_step:
                     return adj_price(my_min, increment=False)
                 else:
-                    return my_min
+                    return adj_price(my_min, increment=True)
             else:
                 # Non aggressive sells - position somewhere healthy
                 return adj_price(my_min, increment=True)
@@ -431,6 +431,8 @@ class GdaxMarketMaker:
         # based on total value of account
         if check_size and side == 'buy':
             pos_size = self.position_size
+            if pos_size < 0.01:
+                return None
             if size > pos_size:
                 size = pos_size
 
@@ -521,7 +523,14 @@ class GdaxMarketMaker:
         bid = float(snap.lowest_ask[0])
         spend_avail = balance * self.spend_pct
         size_avail = spend_avail / bid
-        return size_avail
+        buy_orders = len(self.buy_orders)
+        sells_open = len(self.sell_orders)
+        if size_avail > 0.01 \
+                and buy_orders < self.max_open_buys \
+                and sells_open < self.max_open_sells:
+            return size_avail
+        return 0
+
 
     @property
     def position_spend(self):
@@ -796,43 +805,54 @@ class GdaxMarketMaker:
             logger.debug("Mapped {} open orders to fills: "
                          "{}".format(len(added), added))
 
+    @property
+    def ticker_price(self):
+        try:
+            return float(self.book_feed.get_current_ticker()['price'])
+        except TypeError:
+            return None
+
     def run(self):
         self.book_feed.start()
         sleep(10)
 
         while not self.stop:
-            usd_acc = self.gdax.accounts['USD']
+
             snap = self.get_book_snapshot()
-            balance = usd_acc.balance
+            bids = snap.bids
             wall_size = self.wall_size
             bid = float(snap.lowest_ask[0])
-            spend_avail = balance * self.spend_pct
+            size_avail = self.position_size
+            tick_price = self.ticker_price
+            spend_avail = size_avail * tick_price
             size_avail = spend_avail / bid
             new_orders = list()
-            orders_open = len(self.buy_orders)
-            sells_open = len(self.sell_orders)
+
             logger.debug("Spend available: {}\n"
                          "Size Available: {}\n".format(
                           spend_avail, size_avail))
 
-            if size_avail > 0.01 and orders_open < self.max_open_buys and sells_open < self.max_open_sells:
+            if size_avail > 0.01 and bids and tick_price:
                 # We can place a spread order.
                 bid_idx = None
-                for idx, data in enumerate(snap.bids):
+                for idx, data in enumerate(bids):
                     price, size, o_id = data
                     if size >= wall_size and idx >= 3:
                         bid_idx = idx-1
                         break
 
                 if bid_idx:
-                    b_price, b_size, b_id = snap.bids[bid_idx]
+                    b_price, b_size, b_id = bids[bid_idx]
                     while not b_price:
                         bid_idx += 1
                         try:
-                            b_price, b_size, b_id = snap.bids[bid_idx]
+                            b_price, b_size, b_id = bids[bid_idx]
                         except IndexError:
                             continue
-                    logger.debug("Found price: {} & size {}".format(b_price, b_size))
+
+                    logger.debug("Found price: {} & size "
+                                 "{}".format(b_price, b_size))
+
                     o = self.place_order(b_price,
                                          size_avail,
                                          side='buy',
@@ -840,11 +860,12 @@ class GdaxMarketMaker:
                                          adjust_vs_open=True,
                                          check_ticker=True)
                     new_orders.append(o.id)
+
                 else:
                     logger.debug("No bid index found so no buy.")
             else:
-                logger.debug("{} open orders & {} funds "
-                             "available".format(orders_open, balance))
+                logger.debug("{} open buy orders & {} open sell orders, ticker ${}".format(
+                    len(self.buy_orders), len(self.sell_orders), tick_price))
 
             self.shift_orders(snap, exclude=new_orders)
             sleep(self.interval)
@@ -868,11 +889,11 @@ if __name__ == '__main__':
     INTERVAL = 10
     SPEND_PERCENT = 0.02
     MAX_OPEN_BUYS = 3
-    MAX_OPEN_SELLS = 7
+    MAX_OPEN_SELLS = 27
     MANAGE_OUTSIDE_ORDERS = False
 
-    g = Gdax()
-    m = GdaxMarketMaker(product_id='ETH-USD', gdax=g,
+    m = GdaxMarketMaker(product_id=PRODUCT_ID,
+                        gdax=Gdax(),
                         max_spread=MAX_SPREAD,
                         min_spread=MIN_SPREAD,
                         stop_pct=STOP_PCT,
@@ -881,6 +902,7 @@ if __name__ == '__main__':
                         max_open_buys=MAX_OPEN_BUYS,
                         max_open_sells=MAX_OPEN_SELLS,
                         manage_existing_orders=MANAGE_OUTSIDE_ORDERS)
+
     m.map_open_orders_to_fills()
     m.run()
 
