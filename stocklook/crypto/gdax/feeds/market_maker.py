@@ -77,7 +77,7 @@ class GdaxMMOrder(GdaxOrder):
             return self.m.book_feed.get_bid_depth(self.price)
         return self.m.book_feed.get_ask_depth(self.price)
 
-    def get_amount_above_spread(self, spread=None, bid=None, ask=None):
+    def get_amount_above_spread(self, spread=None):
         """
         Returns the difference between the order price and the current bid/ask based
         on a given spread target.
@@ -90,16 +90,33 @@ class GdaxMMOrder(GdaxOrder):
         """
         if spread is None:
             spread = self.m.max_spread
+        spread_bit = spread/3
+        snap = self.m.get_book_snapshot()
 
         if self.side == 'sell':
-            if bid is None:
-                bid = self.m.get_book_snapshot().highest_bid[0]
+            bid = snap.bids[0][0]
             max_price = bid + spread
+
+            for _ in range(5):
+                depth_check = snap.calculate_ask_depth(max_price)
+                if depth_check >= 30:
+                    break
+                max_price += spread_bit
+                logger.info("ask depth {} @ ${}".format(depth_check, max_price))
+
             return round(self.price - max_price, 2)
-        else:
-            if ask is None:
-                ask = self.m.get_book_snapshot().lowest_ask[0]
+
+        elif self.side == 'buy':
+            ask = snap.asks[0][0]
             min_price = ask - spread
+
+            for _ in range(5):
+                depth_check = snap.calculate_bid_depth(min_price)
+                if depth_check >= 30:
+                    break
+                min_price -= spread_bit
+                depth_check = snap.calculate_bid_depth(min_price)
+                logger.info("bid depth {} @ ${}".format(depth_check, min_price))
             return round(self.price - min_price, 2)
 
     def get_pnl(self, price=None):
@@ -418,7 +435,7 @@ class GdaxMarketMaker:
         self.book_feed = book_feed
         self.product_id = product_id
         self.gdax = gdax
-        self.auth = auth
+        self.auth = True
         self._wall_size = wall_size
         self.interval = interval
         self._t_time = datetime.now()
@@ -957,16 +974,18 @@ class GdaxMarketMaker:
             bid = float(snap.lowest_ask[0])
             size_avail = self.position_size
             tick_price = self.ticker_price
-            spend_avail = size_avail * tick_price
-            size_avail = spend_avail / bid
+
             new_orders = list()
 
-            logger.debug("Spend available: {}\n"
-                         "Size Available: {}\n".format(
-                          spend_avail, size_avail))
+
 
             if size_avail > 0.01 and bids and tick_price:
-                # We can place a spread order.
+                spend_avail = size_avail * tick_price
+                size_avail = spend_avail / bid
+                logger.debug("Spend available: {}\n"
+                             "Size Available: {}\n".format(
+                    spend_avail, size_avail))
+
                 bid_idx = None
                 for idx, data in enumerate(bids):
                     price, size, o_id = data

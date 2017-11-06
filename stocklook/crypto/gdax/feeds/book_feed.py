@@ -29,6 +29,9 @@ class BookSnapshot:
         price, qty, order_id
         :return:
         """
+        bids = self.book_dict['bids']
+        if not bids:
+            self.refresh()
         return self.book_dict['bids']
 
     @property
@@ -41,6 +44,9 @@ class BookSnapshot:
 
     @property
     def asks(self):
+        asks = self.book_dict['asks']
+        if not asks:
+            self.refresh()
         return self.book_dict['asks']
 
     def calculate_wall_size(self, walls=None, min_size=20, within_percent=0.01, measure_size=7):
@@ -56,21 +62,25 @@ class BookSnapshot:
         wall_sort = sorted(walls, key=lambda x: x[1], reverse=True)[measure_size:]
         return sum([w[1] for w in wall_sort]) / len(wall_sort)
 
-    def calculate_depth(self, data, to_price):
+    def calculate_bid_depth(self, to_price):
         depth = 0
 
-        for price, size, o_id in data:
-            if price > to_price:
+        for price, size, o_id in self.bids:
+            if price < to_price:
                 break
             depth += size
 
         return depth
 
-    def calculate_bid_depth(self, to_price):
-        return self.calculate_depth(self.bids, to_price)
-
     def calculate_ask_depth(self, to_price):
-        return self.calculate_depth(self.asks, to_price)
+        depth = 0
+
+        for price, size, o_id in self.asks:
+            if price > to_price:
+                break
+            depth += size
+
+        return depth
 
     def refresh(self):
         self.book_dict = self.book_feed.get_current_book()
