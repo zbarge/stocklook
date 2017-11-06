@@ -56,6 +56,22 @@ class BookSnapshot:
         wall_sort = sorted(walls, key=lambda x: x[1], reverse=True)[measure_size:]
         return sum([w[1] for w in wall_sort]) / len(wall_sort)
 
+    def calculate_depth(self, data, to_price):
+        depth = 0
+
+        for price, size, o_id in data:
+            if price > to_price:
+                break
+            depth += size
+
+        return depth
+
+    def calculate_bid_depth(self, to_price):
+        return self.calculate_depth(self.bids, to_price)
+
+    def calculate_ask_depth(self, to_price):
+        return self.calculate_depth(self.asks, to_price)
+
     def refresh(self):
         self.book_dict = self.book_feed.get_current_book()
         self.bids.reverse()
