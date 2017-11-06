@@ -117,7 +117,7 @@ class GdaxOrder:
         self.order_type = order_type
         self.side = side
         self.stp = stp
-        self.price = price
+        self._price = price
         self.size = size
         self.funds = funds
         self.time_in_force = time_in_force
@@ -160,6 +160,22 @@ class GdaxOrder:
                                self.funds)
         self._json = order
         return self._json
+
+    @property
+    def price(self):
+        return self._price
+
+    @price.setter
+    def price(self, x):
+        if x is not None:
+            self._price = round(x, 2)
+        else:
+            self._price = x
+
+    @price.getter
+    def price(self):
+        if self._price:
+            return round(self._price, 2)
 
     def update(self, data=None):
         """

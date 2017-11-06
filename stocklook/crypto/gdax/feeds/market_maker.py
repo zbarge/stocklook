@@ -38,17 +38,6 @@ class GdaxMMOrder(GdaxOrder):
         return self._op_order
 
     @property
-    def price(self):
-        return self._price
-
-    @price.setter
-    def price(self, x):
-        if x:
-            self._price = round(x, 2)
-        else:
-            self._price = x
-
-    @property
     def stop_amount(self):
         stop_pct = self.m.stop_pct
         op_order = self.op_order
@@ -202,6 +191,9 @@ class GdaxMMOrder(GdaxOrder):
         other_prices = [p for p in other_prices
                         if p != self.price]
 
+        if not other_prices:
+            return self.price
+
         my_price = self.price
         my_min = self.get_price_adjusted_to_spread(spread=None,
                                                    aggressive=aggressive,
@@ -211,11 +203,29 @@ class GdaxMMOrder(GdaxOrder):
         max_price = other_prices[-1]
 
         if my_min >= my_price or min_price == max_price:
-            if self.side == 'sell':
-                while my_price in other_prices:
-                    my_price += step
-                    my_price = round(my_price, 2)
-            return my_price
+            min_check = my_min - (step * 2)
+            max_check = my_min + (step * 2)
+            nearby_prices = [p for p in other_prices
+                             if p >= min_check or p <= max_check]
+            price_ct = len(other_prices)
+            min_nearby = int(price_ct / 2)
+            if min_nearby < 2:
+                min_nearby = 2
+
+            while len(nearby_prices) > min_nearby:
+                if self.side == 'sell':
+                    my_min += step
+                else:
+                    my_min -= step
+                while my_min in other_prices:
+                    if self.side == 'sell':
+                        my_min += step
+                    else:
+                        my_min -= step
+                min_check = my_min - (step * 2)
+                max_check = my_min + (step * 2)
+                nearby_prices = [p for p in other_prices
+                                 if p >= min_check or p <= max_check]
 
         elif aggressive:
             if self.side == 'sell':
@@ -260,6 +270,10 @@ class GdaxMMOrder(GdaxOrder):
                 min_nearby = 2
 
             while len(nearby_prices) > min_nearby:
+                if self.side == 'sell':
+                    my_min += step
+                else:
+                    my_min -= step
                 while my_min in other_prices:
                     if self.side == 'sell':
                         my_min += step
@@ -472,14 +486,18 @@ class GdaxMarketMaker:
                             size=size)
 
         if adjust_vs_open:
-            order.price = order.get_price_adjusted_to_other_prices(step=round(self.max_spread/2, 2),
+            open_price = order.get_price_adjusted_to_other_prices(step=round(self.max_spread/2, 2),
                                                                    min_profit=self.min_spread,
                                                                    aggressive=aggressive)
+            if open_price:
+                order.price = open_price
 
         # Adjust price against ticker if needed
         # As we don't want a market order.
         if check_ticker:
-            order.price = order.get_price_adjusted_to_ticker(aggressive=aggressive)
+            tick_price = order.get_price_adjusted_to_ticker(aggressive=aggressive)
+            if tick_price:
+                order.price = tick_price
 
         logger.debug("new: {} {} {} @ {}".format(
             side, size, self.product_id, price))
@@ -625,9 +643,14 @@ class GdaxMarketMaker:
 
                 min_diff = round(order.price - min_price, 2)
                 max_diff = round(max_price - order.price, 2)
-                logger.debug("Evaluating {} order:\nprice {}\nmin {}\nmax {}\n"
-                             "ticker {}\nmin diff {}\nmax diff {}".format(order.side, order.price, min_price,
-                                                                          max_price, p, min_diff, max_diff))
+                logger.debug("Evaluating {} order:\n"
+                             "price {}\n"
+                             "min {}\n"
+                             "max {}\n"
+                             "ticker {}\n"
+                             "min diff {}\n"
+                             "max diff {}".format(order.side, order.price, min_price,
+                                                  max_price, p, min_diff, max_diff))
 
                 check_price = order.get_price_adjusted_to_other_prices(
                     aggressive=self.aggressive, step=round(spread / 2, 2), )
@@ -635,17 +658,16 @@ class GdaxMarketMaker:
                 if order.side == 'buy':
                     # min_diff = max buy
                     # max_diff = min buy
-                    if self.aggressive:
-                        if max_diff > spread:
-                            # go for minimum spread
-                            if check_price > order.price:
-                                self.cancel_order(order.id)
-                                new_order = self.place_order(check_price,
-                                                             order.size,
-                                                             side=order.side,
-                                                             op_order=order,
-                                                             adjust_vs_open=False)
-                                new_orders.append(new_order)
+                    if max_diff > spread:
+                        # go for minimum spread
+                        if check_price > order.price:
+                            self.cancel_order(order.id)
+                            new_order = self.place_order(check_price,
+                                                         order.size,
+                                                         side=order.side,
+                                                         op_order=order,
+                                                         adjust_vs_open=False)
+                            new_orders.append(new_order)
 
                 elif order.side == 'sell':
                     stop = order.stop_amount
@@ -663,7 +685,7 @@ class GdaxMarketMaker:
                                                      check_size=False)
                         new_orders.append(new_order)
 
-                    elif self.aggressive:
+                    else:
                         if order.price > min_price:
                             # go for minimum spread
                             # first check against others
@@ -706,15 +728,16 @@ class GdaxMarketMaker:
         if replace:
             buy_orders = self.buy_orders
             sell_orders = self.sell_orders
+            spread = (self.min_spread if self.aggressive else self.max_spread)
             if order.side == 'buy':
                 maxed = None
                 new_side = 'sell'
-                new_price = order.price + self.max_spread
+                new_price = order.price + spread
             else:
                 maxed = (len(buy_orders) > self.max_open_buys or
                          len(sell_orders) > self.max_open_sells)
                 new_side = 'buy'
-                new_price = order.price - self.max_spread
+                new_price = order.price - spread
 
             if not maxed:
                 new_order = self.place_order(new_price,
@@ -815,8 +838,6 @@ class GdaxMarketMaker:
             logger.debug("Mapped {} open orders to fills: "
                          "{}".format(len(added), added))
 
-
-
     def run(self):
         self.book_feed.start()
         sleep(15)
@@ -844,24 +865,22 @@ class GdaxMarketMaker:
                     if size >= wall_size and idx >= 3:
                         bid_idx = idx-1
                         break
-                    else:
-                        #logger.debug("Passing bid ${} & {}".format(price, size))
-                        pass
 
                 if bid_idx:
-                    min_order = self.lowest_open_order
                     b_price, b_size, b_id = snap.bids[bid_idx]
-                    if min_order is not None:
-                        p = min_order.price
-                        if p >= b_price:
-                            b_price -= self.min_spread
-                    if b_price < bid * .9:
-                        b_price = bid - self.max_spread
+                    while not b_price:
+                        bid_idx += 1
+                        try:
+                            b_price, b_size, b_id = snap.bids[bid_idx]
+                        except IndexError:
+                            continue
 
                     o = self.place_order(b_price,
                                          size_avail,
                                          side='buy',
-                                         aggressive=False)
+                                         aggressive=False,
+                                         adjust_vs_open=True,
+                                         check_ticker=True)
                     new_orders.append(o.id)
                 else:
                     logger.debug("No bid index found so no buy.")
