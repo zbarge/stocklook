@@ -11,12 +11,9 @@ from stocklook.crypto.gdax.feeds.book_feed import GdaxBookFeed, BookSnapshot
 logger = logging.getLogger(__name__)
 logger.setLevel(config.get('LOG_LEVEL', logging.DEBUG))
 
+
 class OrderLockError(Exception):
     pass
-
-def generate_random_spread_value(spread_diff):
-    spread_diff *= 100
-    ri = randint(1, spread_diff)
 
 
 class GdaxMMOrder(GdaxOrder):
@@ -27,6 +24,7 @@ class GdaxMMOrder(GdaxOrder):
         self._locked = False
         self._prices = list()
         self._unlock_method = None
+        self._cycle_number = 0
         GdaxOrder.__init__(self, *args, **kwargs)
     
     @property
@@ -36,6 +34,10 @@ class GdaxMMOrder(GdaxOrder):
     @property
     def op_order(self):
         return self._op_order
+
+    @property
+    def cycle_number(self):
+        return self._cycle_number
 
     @property
     def stop_amount(self):
@@ -141,6 +143,9 @@ class GdaxMMOrder(GdaxOrder):
             raise AttributeError("Cannot register op_order "
                                  "of same type '{}'".format(o_side))
 
+    def register_order_cycle(self):
+        self._cycle_number += 1
+
     @staticmethod
     def from_gdax_order(order, market_maker, op_order=None):
         if isinstance(order, GdaxOrder):
@@ -188,7 +193,6 @@ class GdaxMMOrder(GdaxOrder):
         other_prices = [p for p in other_prices
                         if p != self.price]
 
-        my_price = self.price
         my_min = self.get_price_adjusted_to_spread(spread=None,
                                                    aggressive=aggressive,
                                                    min_profit=min_profit)
@@ -266,7 +270,8 @@ class GdaxMMOrder(GdaxOrder):
         :param side:
         :return:
         """
-        return [round(o.price,2) for o in self.m._orders.values() if o.side == side]
+        return [round(o.price,2) for o in self.m._orders.values()
+                if o.side == side]
 
     def get_price_adjusted_to_ticker(self, price=None, ticker=None, aggressive=True, adjust_vs_open=True):
         """
@@ -341,7 +346,6 @@ class GdaxMarketMaker:
                  book_feed=None,
                  product_id=None,
                  gdax=None,
-                 auth=True,
                  max_spread=0.10,
                  min_spread=0.05,
                  stop_pct=0.05,
@@ -352,10 +356,59 @@ class GdaxMarketMaker:
                  max_open_sells=12,
                  manage_existing_orders=True,
                  aggressive=True):
+        """
+        Gdax market maker bot automatically trades the spreads.
+
+        :param book_feed: (stocklook.crypto.gdax.feeds.book_feed.GdaxBookFeed, default None)
+            None creates a new object.
+
+        :param product_id: (str, ('ETH-USD', 'BTC-USD'))
+            Can be any currency pair supported by Gdax.
+
+        :param gdax: (stocklook.crypto.gdax.api.Gdax)
+            None creates a new default object relying on stocklook.config.
+
+        :param max_spread: (float, default 0.10)
+            The maximum amount of currency desired on each position trade.
+            Aggressive trades have lower maximums.
+
+        :param min_spread: (float, default 0.05)
+            The minimum amount of currency desired on each position trade.
+            Aggressive trades have lower minimums.
+
+        :param stop_pct: (float, default 0.05)
+            Defaults a stop out at 5% decrease in asset price from purchase price.
+            places limit orders near spread until the order is filled during stop out.
+
+        :param interval: (int, default 2)
+            Number of seconds to wait between order cycles.
+            An order cycle is one loop during GdaxMarketMaker.run method.
+
+        :param wall_size: (int, float, default None)
+            The number of coins on a bid or ask that should be considered a "wall".
+            None will calculate wall size measuring largest bids or asks on the book.
+
+        :param spend_pct: (float, default 0.01)
+            By default, 1% of available currency will be spent on each position.
+
+        :param max_open_buys: (int, default 6)
+            The maximum number of open buy orders to maintain spreads for.
+
+        :param max_open_sells: (int, default 12)
+            The maximum number of open sell orders to maintain spreads for.
+
+        :param manage_existing_orders: (bool, default True)
+            Allow management of existing open buy or sell orders... With no previous history
+            The bot may decide to change prices/sell the positions for a loss.
+
+        :param aggressive: (bool, default True)
+            The aggressive parameter is used to determine how tight or loose to manage order prices.
+            An aggressive bot trades more frequently for tighter spreads/margins.
+        """
         if book_feed is None:
             book_feed = GdaxBookFeed(product_id=product_id,
                                      gdax=gdax,
-                                     auth=auth)
+                                     auth=True)
         if gdax is None:
             gdax = book_feed.gdax
 
@@ -377,6 +430,7 @@ class GdaxMarketMaker:
         self.max_open_sells = max_open_sells
         self.manage_existing_orders = manage_existing_orders
         self.aggressive = aggressive
+        self.currency = product_id.split('-')[1]
 
         self.stop = False
         self._book_snapshot = None
@@ -471,6 +525,12 @@ class GdaxMarketMaker:
 
     @property
     def orders(self):
+        """
+        Public orders accessor calls open orders from API
+        removing already filled orders before returning
+        the dictionary of open buy and sell orders.
+        :return: {GdaxMMOrder.id: GdaxMMOrder}
+        """
         open_orders = self.gdax.get_orders(status='open',
                                            paginate=False   #
                                            )
@@ -494,7 +554,42 @@ class GdaxMarketMaker:
         return self._orders
 
     @property
+    def order_list(self):
+        """
+        Returns a list of open buy/sell orders
+        Preferred method to get orders without
+        calling the API.
+        :return:
+        """
+        return list(self._orders.values())
+
+    @property
+    def buy_orders(self):
+        """
+        Returns dictionary of GdaxMMOrder.id: GdaxMMOrder
+        on the buy side.
+        :return:
+        """
+        return {o_id: o for o_id, o in self._orders.items()
+                if o.side == 'buy'}
+
+    @property
+    def sell_orders(self):
+        """
+        Returns dictionary of GdaxMMOrder.id: GdaxMMOrder
+        on the sell side.
+        :return:
+        """
+        return {o_id: o for o_id, o in self._orders.items()
+                if o.side == 'sell'}
+
+    @property
     def wall_size(self):
+        """
+        Calculates bid/ask wall size if one wasn't provided on
+        init.
+        :return:
+        """
         if self._wall_size is None or self._timeout():
             snap = self.get_book_snapshot()
             self._wall_size = snap.calculate_wall_size()
@@ -517,7 +612,15 @@ class GdaxMarketMaker:
 
     @property
     def position_size(self):
-        usd_acc = self.gdax.accounts['USD']
+        """
+        Returns the position size that should be ordered
+        taking into consideration
+            - open sell orders v.s. GdaxMarketMaker.max_open_sells
+            - open buy orders v.s GdaxMarketMaker.max_open_buys
+            - currency balance.
+        :return:
+        """
+        usd_acc = self.gdax.accounts[self.currency]
         snap = self.get_book_snapshot()
         balance = usd_acc.balance
         bid = float(snap.lowest_ask[0])
@@ -531,15 +634,20 @@ class GdaxMarketMaker:
             return size_avail
         return 0
 
-
     @property
     def position_spend(self):
+        """
+        Returns the amount of curency that should
+        be spent on entering a new buy position based on
+        GdaxMarketMaker.spend_pct value.
+        :return:
+        """
         usd_acc = self.gdax.accounts['USD']
         balance = usd_acc.balance
         spend_avail = balance * self.spend_pct
         return spend_avail
 
-    def shift_orders(self, snap: BookSnapshot, exclude=None):
+    def shift_orders(self, exclude=None):
         """
         Algorithm for shifting buy and sell orders up and down. Called once every
         interval and cancels/replaces many orders.
@@ -668,17 +776,17 @@ class GdaxMarketMaker:
 
         return new_orders
 
-    @property
-    def buy_orders(self):
-        return {o_id: o for o_id, o in self._orders.items()
-                if o.side == 'buy'}
-
-    @property
-    def sell_orders(self):
-        return {o_id: o for o_id, o in self._orders.items()
-                if o.side == 'sell'}
-
     def handle_fill(self, order_id, replace=True):
+        """
+        Handles a buy or sell order that has been filled.
+        An opposite order can be placed immediately if replace is True.
+        An unfilled order raises an AttributeError.
+        A filled order is removed from GdaxMarketMaker.orders.
+
+        :param order_id:
+        :param replace:
+        :return:
+        """
         order = self._orders.pop(order_id)
         if not order.is_filled():
             raise Exception("Order {} is not "
@@ -727,6 +835,12 @@ class GdaxMarketMaker:
         return new_order
 
     def cancel_order(self, order_id):
+        """
+        Cancels an open buy or sell order. If the order has been filled
+        it will be handled via GdaxMarketMaker.handle_fill.
+        :param order_id:
+        :return:
+        """
         order = self._orders.pop(order_id, None)
         logger.debug("Cancelling order: {}".format(order))
         try:
@@ -752,6 +866,11 @@ class GdaxMarketMaker:
         return order
 
     def get_book_snapshot(self):
+        """
+        Returns a new BookSnapshot or refreshes the
+        existing BookSnapshot on an interval.
+        :return:
+        """
         if self._book_snapshot is None:
             book = self.book_feed.get_current_book()
             book['bids'].reverse()
@@ -761,6 +880,12 @@ class GdaxMarketMaker:
         return self._book_snapshot
 
     def map_open_orders_to_fills(self):
+        """
+        Scans recent fills mapping them to buy orders. If a successful fill & buy order can be
+        matched they'll be managed during order cycles, otherwise existing orders are ignored
+        as long as GdaxMarketMaker.manage_existing_orders is False.
+        :return:
+        """
         fills = self.gdax.get_fills(product_id=self.product_id, paginate=False)
         open_orders = self.gdax.get_orders(status='open',
                                            paginate=False  #
@@ -807,17 +932,25 @@ class GdaxMarketMaker:
 
     @property
     def ticker_price(self):
+        """
+        Returns the current ticker price or None.
+        """
         try:
             return float(self.book_feed.get_current_ticker()['price'])
         except TypeError:
             return None
 
     def run(self):
+        """
+        Main method runs in main thread managing the order book on a separate thread.
+        does a refresh every GdaxMarketMaker.interval seconds evaluating open buy and
+        sell orders against each other and the bids/asks.
+        :return:
+        """
         self.book_feed.start()
         sleep(10)
 
         while not self.stop:
-
             snap = self.get_book_snapshot()
             bids = snap.bids
             wall_size = self.wall_size
@@ -867,18 +1000,45 @@ class GdaxMarketMaker:
                 logger.debug("{} open buy orders & {} open sell orders, ticker ${}".format(
                     len(self.buy_orders), len(self.sell_orders), tick_price))
 
-            self.shift_orders(snap, exclude=new_orders)
+            self.register_order_cycle()
+            self.shift_orders(exclude=new_orders)
             sleep(self.interval)
 
         self.book_feed.close()
 
-    def __del__(self):
+    def close_open_buy_orders(self, raise_errs=True):
+        """
+        Cancels any open buy orders.
+        :param raise_errs:
+        :return:
+        """
         for o_id, order in self.buy_orders.items():
             try:
-                order.cancel()
+                self.cancel_order(o_id)
             except Exception as e:
-                logger.error("Error during shutdown & "
-                             "canceling order {}: {}".format(o_id, e))
+                logger.error("Error canceling buy order {}: "
+                             "{}".format(o_id, e))
+                if raise_errs:
+                    raise
+
+    def register_order_cycle(self):
+        """
+        increments GdaxMMOrder.cycle_number.
+        Called on every loop in
+        GdaxMarketMaker.run.
+        :return:
+        """
+        [o.register_order_cycle()
+         for o in self._orders.values()]
+
+    def __del__(self):
+        """
+        Not sure this works but its worth trying...
+        If we get an error/shut down we should cancel buy orders since
+        we'll no longer be able to manage them.
+        :return:
+        """
+        self.close_open_buy_orders(raise_errs=False)
 
 
 if __name__ == '__main__':
