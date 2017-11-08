@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from stocklook.crypto.gdax.api import Gdax, GdaxAPIError
 from stocklook.utils.timetools import now, now_minus, timeout_check
 from stocklook.crypto.gdax.feeds.book_feed import GdaxBookFeed, BookSnapshot
-from stocklook.crypto.gdax.order_mm import GdaxMMOrder, GdaxOrderCancellationError
+from stocklook.crypto.gdax.order_mm import GdaxMMOrder, GdaxOrderCancellationError, OrderLockError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(config.get('LOG_LEVEL', logging.DEBUG))
@@ -55,6 +55,20 @@ def tick_change_check(t_price, t_dict, t_key, min_change=0.01):
 
 
 class GdaxMarketMaker:
+    _5M = '5M'
+    _15M = '15M'
+    _1H = '1H'
+    _4H = '4H'
+    _1D = '1D'
+    TIME_FRAMES = [_5M, _15M, _1H, _4H, _1D]
+    TIMEFRAME_MAP = {
+        # time frame: (granularity, hours back, refresh seconds)
+        _5M: (60*5, 24, 60*30),
+        _15M: (60*15, 36, 60*60),
+        _1H: (60*60, 48, 60*60*2),
+        _4H: (60*60*4, 24*14, 60*60*8),
+        _1D: (60*60*24, 24*28, 60*60*24),
+    }
     def __init__(self,
                  book_feed=None,
                  product_id=None,
@@ -152,7 +166,7 @@ class GdaxMarketMaker:
         self._fills = dict()
         self._t_data = dict()
         self._tick_prices = dict()
-        self._chart_data = None
+        self._charts = dict()
 
 
     def place_order(self, price, size, side='buy', op_order=None, adjust_vs_open=True,
@@ -217,9 +231,9 @@ class GdaxMarketMaker:
                             size=size)
 
         if adjust_vs_open:
-            open_price = order.get_price_adjusted_to_other_prices(step=round(self.max_spread/2, 2),
-                                                                   min_profit=self.min_spread,
-                                                                   aggressive=aggressive)
+            open_price = order.get_price_adjusted_to_other_prices(
+                step=self.min_spread, min_profit=self.min_spread, aggressive=aggressive
+            )
             if open_price:
                 order.price = open_price
 
@@ -245,30 +259,47 @@ class GdaxMarketMaker:
                                  self._tick_prices,
                                  ticker_key,
                                  min_change=min_change)
-    @property
-    def chart_data(self):
-        """
-        Sync'ed access to the last 24 hours
-        of historical data from Gdax.
-        Access pandas.DataFrame via GdaxMarketMaker.chart_data.df
 
-        :return:
+    def get_chart(self, time_frame='5M'):
         """
-        timed_out = timeout_check('chart_data',
+        Access to GdaxChartData objects that are automatically created,
+        cached, and/or refreshed on an interval.
+        :param time_frame (str, default '5M')
+            The timeframe interval of chart data to get.
+            5M: 5 minutes
+            15M: 15 minutes
+            1H: 1 hour
+            4H: 4 hours
+            1D: daily
+        :return: (stocklook.crypto.gdax.chartdata.GdaxChartData)
+        """
+        assert time_frame in self.TIME_FRAMES
+
+        key = 'chart_data_{}'.format(time_frame)
+        chart = self._charts.get(key, None)
+        granularity, hours_back, seconds = self.TIMEFRAME_MAP[time_frame]
+        timed_out = timeout_check(key,
                                   t_data=self._t_data,
-                                  seconds=60*60)
-        if self._chart_data is None:
+                                  seconds=seconds)
+        start = now_minus(hours=hours_back)
+        end = now()
+
+        if chart is None:
             from stocklook.crypto.gdax.chartdata import GdaxChartData
-            start = now_minus(days=1)
-            end = now()
-            self._chart_data = GdaxChartData(
+
+            chart = GdaxChartData(
                 self.gdax, self.product_id,
-                start, end, granularity=60*5
+                start, end, granularity=granularity
             )
-            self._chart_data.get_candles()
+            chart.get_candles()
+
+            self._charts[key] = chart
         elif timed_out:
-            self._chart_data.get_candles()
-        return self._chart_data
+            chart.start = start
+            chart.end = end
+            chart.get_candles()
+
+        return chart
 
     @property
     def orders(self):
@@ -440,6 +471,7 @@ class GdaxMarketMaker:
         if not tick_change:
             return new_orders
 
+        snap = self.get_book_snapshot()
         spread = (self.min_spread if self.aggressive else self.max_spread)
 
         for order_id, order in self._orders.copy().items():
@@ -448,15 +480,10 @@ class GdaxMarketMaker:
                              "{}".format(order.side, order.price))
                 continue
 
-            if order.side == 'sell':
-                # check if order is stopped
-                stop = order.stop_amount
-                if stop and stop >= p:
-                    logger.debug("shift_prices: order stopped. price: {}, "
-                                 "stop: {}, ticker: {}".format(
-                                  order.price, stop, p))
-                    cancels.append((order_id, p + 0.01))
-                    continue
+            if order.locked:
+                logger.debug("Ignoring locked {} order at price "
+                             "{}".format(order.side, order.price))
+                continue
 
             min_price = order.get_price_adjusted_to_spread(
                 aggressive=True, min_profit=spread)
@@ -475,9 +502,11 @@ class GdaxMarketMaker:
                                               max_price, p, min_diff, max_diff))
 
             check_price = order.get_price_adjusted_to_other_prices(
-                aggressive=self.aggressive, step=round(spread / 2, 2), )
+                aggressive=self.aggressive, step=spread, )
 
             if order.side == 'buy':
+                vol_2_price = snap.calculate_bid_depth(order.price)
+                vol_2_cprice = snap.calculate_bid_depth(check_price)
                 # min_diff = max buy
                 # max_diff = min buy
                 if max_diff > spread:
@@ -492,6 +521,7 @@ class GdaxMarketMaker:
                         new_orders.append(new_order)
 
             elif order.side == 'sell':
+                # First priority is checking stops
                 stop = order.stop_amount
                 stop_sell = round(p+(spread/2), 2)
                 if stop and stop >= p and order.price > stop_sell:
@@ -508,6 +538,8 @@ class GdaxMarketMaker:
                     new_orders.append(new_order)
 
                 else:
+                    vol_2_price = snap.calculate_ask_depth(order.price)
+                    vol_2_cprice = snap.calculate_ask_depth(check_price)
                     if order.price > min_price:
                         # go for minimum spread
                         # first check against others
@@ -775,10 +807,75 @@ class GdaxMarketMaker:
         spreads/spend_pct/max_buys/etc.
         :return:
         """
-        c = self.chart_data
-        df = c.df
-        avg_rsi = c.avg_rsi
-        avg_rng = c.avg_range
+        t = self.ticker_price
+        if t is None:
+            return None
+
+        # 5 minute candles
+        c5 = self.get_chart(time_frame=self._5M)
+        df5 = c5.df
+        c5_r1 = df5.iloc[0]
+        c5o, c5h, c5l, c5c = c5_r1['open'], c5_r1['high'], c5_r1['low'], c5_r1['close']
+        avg_rsi5 = c5.avg_rsi
+        avg_rng5 = c5.avg_range
+        avg_vol5 = c5.avg_vol
+
+        # 15 minute candles
+        c15 = self.get_chart(time_frame=self._15M)
+        df15 = c15.df
+        c15_r1 = df15.iloc[0]
+        c15o, c15h, c15l, c15c = c15_r1['open'], c15_r1['high'], c15_r1['low'], c15_r1['close']
+        avg_rsi15 = c15.avg_rsi
+        avg_rng15 = c15.avg_range
+        avg_vol15 = c15.avg_vol
+
+        # Hourly candles
+        c1h = self.get_chart(time_frame=self._1H)
+        df1h = c1h.df
+        c1h_r1 = df1h.iloc[0]
+        c1ho, c1hh, c1hl, c1hc = c1h_r1['open'], c1h_r1['high'], c1h_r1['low'], c1h_r1['close']
+        avg_rsi1h = c1h.avg_rsi
+        avg_rng1h = c1h.avg_range
+        avg_vol1h = c1h.avg_vol
+
+        # 4 hour candles
+        c4h = self.get_chart(time_frame=self._4H)
+        df4h = c4h.df
+        c4h_r1 = df4h.iloc[0]
+        c4ho, c4hh, c4hl, c4hc = c4h_r1['open'], c4h_r1['high'], c4h_r1['low'], c4h_r1['close']
+        avg_rsi4h = c4h.avg_rsi
+        avg_rng4h = c4h.avg_range
+        avg_vol4h = c4h.avg_vol
+
+        avg_rsi_avg = sum([avg_rsi5, avg_rsi1h, avg_rsi4h, avg_rsi15]) / 4
+        avg_rng_avg = sum([avg_rng5, avg_rng1h, avg_rng4h, avg_rsi15]) / 4
+        avg_vol_avg = sum([avg_vol5, avg_vol1h, avg_vol4h]) / 3
+        avg_o = sum([c1ho, c4ho, c5o]) / 3
+        avg_h = sum([c1hh, c4hh, c5h]) / 3
+        avg_l = sum([c1hl, c4hl, c5l]) / 3
+        avg_c = sum([c1hc, c4hc, c5c]) / 3
+
+        logger.debug("Averages:\n\n"
+                     "5 Minute:\nrsi: {}\nrng: {}\nvol: {}\n\n"
+                     "1 Hour:\nrsi: {}\nrng: {}\nvol: {}\n\n"
+                     "4 Hour:\nrsi: {}\nrng: {}\nvol: {}\n\n"
+                     "Median:\nrsi: {}\nrng: {}\nvol: {}\n\n".format(
+                      avg_rsi5, avg_rng5, avg_vol5,
+                      avg_rsi1h, avg_rng1h, avg_vol1h,
+                      avg_rsi4h, avg_rng4h, avg_vol4h,
+                      avg_rsi_avg, avg_rng_avg, avg_vol_avg,
+        ))
+
+        logger.debug("Prices:\n\n"
+                     "5 Minute:\no: {}\nh: {}\nl: {}\nc: {}"
+                     "1 Hour:\no: {}\nh: {}\nl: {}\nc: {}"
+                     "4 Hour:\no: {}\nh: {}\nl: {}\nc: {}"
+                     "Median:\no: {}\nh: {}\nl: {}\nc: {}".format(
+                      c5o, c5h, c5l, c5c,
+                      c1ho, c1hh, c1hl, c1hc,
+                      c4ho, c4hh, c4hl, c4hc,
+                      avg_o, avg_h, avg_l, avg_c
+        ))
 
 
     def register_order_cycle(self):
@@ -806,9 +903,9 @@ if __name__ == '__main__':
     MAX_SPREAD = .50
     MIN_SPREAD = 0.20
     STOP_PCT = 0.05
-    INTERVAL = 10
+    INTERVAL = 5
     SPEND_PERCENT = 0.02
-    MAX_OPEN_BUYS = 3
+    MAX_OPEN_BUYS = 4
     MAX_OPEN_SELLS = 27
     MANAGE_OUTSIDE_ORDERS = False
 

@@ -1,14 +1,9 @@
 stocklook
 =========
 
-A Python based cryptocurrency and stock exchange analysis toolset that I'm working on for personal use.
-One end-goal is to algo-trade gdax with limit orders on 5-15 minute timeframes.
-Another end-goal is to aggregate/analyze longer-term price movements in crypto/stock markets.
+Cryptocurrency exchange analysis & automated trading on Gdax (for now).
 
-Many crypto python libraries have limited functionality and documentation in the code so I figured it would be better to
-design a multi-exchange library from scratch.
-I will lean on pre-built libraries if they're well-maintained and/or solve a significant problem.
-
+Goal: Painless automated spread and target trading.
 
 APIs:
 ---------
@@ -17,6 +12,50 @@ APIs:
 - Gdax: custom API/database wrapper for managing account/trading and price history
 - Poloniex: custom API/wrapper for getting price history.
 - Yahoo Finance (broken)
+
+Examples
+--------
+
+Accessing Coinbase to view accounts:
+
+    from stocklook.crypto.coinbase_api import CoinbaseClient
+
+    c = CoinbaseClient()
+
+    # method 1 - access accounts via coinbase library
+    obj = c.get_accounts()
+    accounts = obj.response.json['data']
+    for account in accounts:
+        print("{}: {}".format(account['currency']: account['id'])
+
+    # method 2 - parses accounts into dictionary upon access.
+    usd_account = c.accounts['USD']
+
+
+Accessing Gdax to buy some coin:
+
+    from stocklook.crypto.gdax import Gdax, GdaxOrder
+
+    g = Gdax()
+    g.deposit_from_coinbase('USD', 100)
+
+    o = GdaxOrder('LTC-USD', order_type='market', amount=100)
+    o.post()
+
+Market making spreads on Gdax:
+
+    from stocklook.crypto.gdax.market_maker import GdaxMarketMaker
+
+    m = GdaxMarketMaker(product_id='ETH-USD',
+                        min_spread=0.10,
+                        max_spread=0.30,
+                        max_buy_orders=10,
+                        max_sell_orders=30,)
+    m.run()
+
+Accessing Poloniex chart data:
+
+    # In progress
 
 
 Configuration:
@@ -63,41 +102,6 @@ You can update global configuration like so:
 
     # method 2 (same as method 1)
     config.update(my_config)
-
-
-Examples
---------
-
-Accessing Coinbase to view accounts:
-
-    from stocklook.crypto.coinbase_api import CoinbaseClient
-
-    c = CoinbaseClient()
-
-    # method 1 - access accounts via coinbase library
-    obj = c.get_accounts()
-    accounts = obj.response.json['data']
-    for account in accounts:
-        print("{}: {}".format(account['currency']: account['id'])
-
-    # method 2 - parses accounts into dictionary upon access.
-    usd_account = c.accounts['USD']
-
-
-Accessing Gdax to buy some coin:
-
-    from stocklook.crypto.gdax import Gdax, GdaxOrder
-
-    g = Gdax()
-    g.deposit_from_coinbase('USD', 100)
-
-    o = GdaxOrder('LTC-USD', order_type='market', amount=100)
-    o.post()
-
-
-Accessing Poloniex chart data:
-    # In progress
-
 
 
 To-do List:

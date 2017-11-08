@@ -25,13 +25,24 @@ SOFTWARE.
 
 if __name__ == '__main__':
     import os
+    from time import sleep
     from stocklook.crypto.gdax.api import Gdax
     from stocklook.crypto.gdax.chartdata import GdaxChartData
+    from stocklook.crypto.gdax.market_maker import GdaxMarketMaker
     from stocklook.utils.timetools import now, now_minus
     from stocklook.config import config
     chart_path = os.path.join(config['DATA_DIRECTORY'], 'rsi_check.csv')
-
-    fill_map = dict()
     g = Gdax()
-    d = GdaxChartData(g, 'ETH-USD', now_minus(days=1), now(), granularity=60*5,)
-    d.df.to_csv(chart_path, index=False)
+
+    def export_chart():
+        d = GdaxChartData(g, 'ETH-USD', now_minus(days=1), now(), granularity=60*5,)
+        d.df.to_csv(chart_path, index=False)
+
+    m = GdaxMarketMaker(product_id='ETH-USD', gdax=g)
+    m.book_feed.start()
+    sleep(15)
+    for _ in range(5):
+        m.adjust_to_market_conditions()
+        sleep(5)
+
+

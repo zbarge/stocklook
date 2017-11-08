@@ -90,7 +90,9 @@ class GdaxChartData:
 
     @property
     def avg_vol(self):
-        return self.df[self.VOLUME].mean()
+        df = self.df
+        mask = df[self.VOLUME] > 0
+        return df.loc[mask, self.VOLUME].mean()
 
     @property
     def avg_close(self):

@@ -292,12 +292,34 @@ class GdaxMMOrder(GdaxOrder):
 
         return price
 
-    def get_price_incremented(self, p, other_prices, cap_out=None, increment=True, step=0.03, min_profit=0.01, _force=False):
+    def get_price_incremented(self,
+                              p,
+                              other_prices,
+                              cap_out=None,
+                              increment=True,
+                              step=0.03,
+                              min_profit=0.01,
+                              _force=False):
+        """
+        Increments or decrements a price ensuring no other prices are within 1 step.
+
+        :param p: (float)
+            The price to manipulate.
+        :param other_prices: (list)
+            The other prices to evaluate. The return price should not be
+        :param cap_out:
+        :param increment:
+        :param step:
+        :param min_profit:
+        :param _force:
+        :return:
+        """
         try:
             other_prices.remove(p)
         except ValueError:
             pass
 
+        # make a range around the current price by 1 step
         max_p = p + step
         min_p = p - step
         check_p = [x for x in other_prices
@@ -309,15 +331,20 @@ class GdaxMMOrder(GdaxOrder):
                 p += step
             else:
                 p -= step
+            # refresh the range based on the new
             p = round(p, 2)
-            max_p = p + (step * 2)
-            min_p = p - (step * 2)
+            max_p = p + step
+            min_p = p - step
             check_p = [x for x in other_prices
                        if x >= min_p
                        and x <= max_p]
 
         if cap_out is not None and _force is False:
+            # Check to see if price has exceeded the cap
             if not increment and p < cap_out:
+                # means we were decreasing price
+                # and the price ended up underneath the cap
+                # We'll increment the price back around the other prices.
                 return self.get_price_incremented(p,
                                                   other_prices,
                                                   cap_out=cap_out,
@@ -325,6 +352,8 @@ class GdaxMMOrder(GdaxOrder):
                                                   step=step,
                                                   _force=True)
             elif increment and p > cap_out:
+                # increasing price exceeded cap out means
+                # we'll decrement the priec back around the othe prices.
                 return self.get_price_incremented(p,
                                                   other_prices,
                                                   cap_out=cap_out,
@@ -333,25 +362,43 @@ class GdaxMMOrder(GdaxOrder):
                                                   _force=True)
 
         if self.side == 'sell' and min_profit is not None:
+            # We dont want to sell below minimum spread vs our
+            # buy order unless we're stopped out.
             p2 = self.get_price_target_via_op(min_profit)
             if p > self.stop_amount:
                 # not stopped out
-                # so we want min profit
+                # so we'll check profit
                 if p2 > p:
-                    # set price to min profit
-                    p = p2
+                    # the price would have been below target.
+                    # We'll just increment it again with force
+                    return self.get_price_incremented(p2,
+                                                      other_prices,
+                                                      cap_out=cap_out,
+                                                      increment=True,
+                                                      step=step,
+                                                      _force=True)
         return p
 
     def get_price_adjusted_to_other_prices(self, other_prices=None, aggressive=True, step=0.03, min_profit=0.01):
+        """
+        Looks at other prices in the book and returns a unique price that is higher or lower than the others
+        based on order side and if the caller is looking to be aggressive.
+        :param other_prices: (list, default None)
+            An optional list of prices to compare against.
+            buy orders default to prices found in current GdaxMarketMaker.buy_orders
+            sell orders default to prices found in current GdaxMarketMaker.sell_orders
+
+        :param aggressive: (bool, default True)
+            True attempts to make buy prices higher than others
+        :param step:
+        :param min_profit:
+        :return:
+        """
         if other_prices is None:
             if self.side == 'buy':
                 other_prices = list(self.m.buy_orders.values())
             else:
                 other_prices = list(self.m.sell_orders.values())
-            other_prices = list(sorted([o.price for o in other_prices]))
-
-        other_prices = [p for p in other_prices
-                        if p != self.price]
 
         my_min = self.get_price_adjusted_to_spread(spread=None,
                                                    aggressive=aggressive,
@@ -359,7 +406,15 @@ class GdaxMMOrder(GdaxOrder):
         if not other_prices:
             return my_min
 
-        _adj_price = partial(self.get_price_incremented, cap_out=step*10, step=step)
+        # cap out either 5 steps higher or lower
+        # cap may be ignored on sell orders
+        f = len(other_prices)
+        cap_out = (my_min+(step*f) if self.side == 'sell'
+                   else my_min-(step*f))
+
+        _adj_price = partial(self.get_price_incremented,
+                             cap_out=cap_out,
+                             step=step)
 
         def adj_price(p, increment=True):
             return _adj_price(p, other_prices, increment=increment)
@@ -481,12 +536,23 @@ class GdaxMMOrder(GdaxOrder):
         return price
 
     def get_price_adjusted_to_wall(self, min_idx=2, wall_size=50, bump_value=0.01):
+        """
+        Returns the price nearest the wall, sell order placed just below the wall
+        and buy orders placed just above the wall.
+        :param min_idx:
+        :param wall_size:
+        :param bump_value:
+        :return:
+        """
         snap = self.m.get_book_snapshot()
         data = (snap.bids if self.side == 'buy' else snap.asks)
 
         for idx, contents in enumerate(data):
+            # minimum size and index position
             if contents[1] >= wall_size and idx >= min_idx:
                 if self.side == 'buy':
+                    # price above the wall
                     return contents[0] + bump_value
                 else:
+                    # price below the wall
                     return contents[0] - bump_value

@@ -21,18 +21,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-
-from .tables import GdaxSQLQuote, GdaxSQLProduct, GdaxSQLTickerFeedEntry, GdaxOHLC5
-from .product import GdaxProducts
-from stocklook.utils.timetools import timestamp_to_local, timestamp_to_utc_int, now_local
-from stocklook.utils.database import DatabaseLoadingThread
-from sqlalchemy.orm import scoped_session
-from sqlalchemy import and_, or_, func
-from sqlalchemy.exc import IntegrityError
-from pandas import DataFrame, DatetimeIndex, infer_freq, DateOffset, Timestamp, read_sql
 import pandas as pd
-from queue import Queue
 import logging as lg
+from queue import Queue
+from .product import GdaxProducts
+from sqlalchemy import and_, or_, func
+from sqlalchemy.orm import scoped_session
+from sqlalchemy.exc import IntegrityError
+from stocklook.utils.database import DatabaseLoadingThread
+from .tables import (GdaxSQLQuote,
+                     GdaxSQLProduct,
+                     GdaxSQLTickerFeedEntry,
+                     GdaxOHLC5)
+from stocklook.utils.timetools import (timestamp_to_local,
+                                       timestamp_to_utc_int,
+                                       now_local)
+from pandas import (DataFrame,
+                    DatetimeIndex,
+                    infer_freq,
+                    DateOffset,
+                    Timestamp,
+                    read_sql)
+
 logger = lg.getLogger(__name__)
 
 
