@@ -388,13 +388,11 @@ class GdaxOrder:
             return False
         elif self.status and self.status == 'done':
             return True
+
         if update:
             self.update()
 
-        if self.status and self.status == 'done':
-            return True
-
-        return False
+        return self.status and self.status == 'done'
 
     def wait_for_fill(self, interval=30, timeout=60*60, cancel=False):
         """

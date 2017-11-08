@@ -64,7 +64,8 @@ def gdax_call_api(url, method='get', **kwargs):
         retry = '11001' in e \
                 or 'unreachable host' in e \
                 or ('forcibly' in e
-                    and 'existing' in e)
+                    and 'existing' in e)\
+                or '504' in e
 
         if retry:
             sleep(2)

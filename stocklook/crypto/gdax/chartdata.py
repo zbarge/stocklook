@@ -76,11 +76,17 @@ class GdaxChartData:
 
     @property
     def avg_range(self):
-        return self.df[self.RANGE].mean()
+        rng = self.RANGE
+        df = self.df
+        mask = df[rng].isin(df[rng].dropna())
+        return df.loc[mask, rng].mean()
+
 
     @property
     def avg_rsi(self):
-        return self.df[self.RSI].mean()
+        rsi = self.RSI
+        df = self.df
+        return df.loc[df[rsi] > 0, rsi].mean()
 
     @property
     def avg_vol(self):

@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import logging
+from functools import partial
 from stocklook.config import config
 from stocklook.crypto.gdax.order import GdaxOrder, GdaxOrderCancellationError
 logger = logging.getLogger(__name__)
@@ -33,7 +34,26 @@ class OrderLockError(Exception):
 
 
 class GdaxMMOrder(GdaxOrder):
+    """
+    A market maker order with price management and analysis helpers.
+    """
     def __init__(self, market_maker, *args, op_order=None, **kwargs):
+        """
+        :param market_maker: stocklook.crypto.gdax.market_maker.GdaxMarketMaker
+        :param args: stocklook.crypto.gdax.order.GdaxOrder(*args)
+        :param op_order: (GdaxMMOrder, default None)
+        :param kwargs: stocklook.crypto.gdax.order.GdaxOrder(**kwargs)
+
+        Example:
+            o = GdaxMMOrder(market_maker,
+                            Gdax(),
+                            'ETH-USD',
+                            side='buy',
+                            order_type='limit',
+                            price=300.05,
+                            size=0.05
+            )
+        """
         self.market_maker = market_maker
         self._op_order = op_order
         self._fill_chain = list()
@@ -45,18 +65,37 @@ class GdaxMMOrder(GdaxOrder):
 
     @property
     def m(self):
+        """
+        Short-hand accessor to GdaxMMOrder.market_maker
+        :return:
+        """
         return self.market_maker
 
     @property
     def op_order(self):
+        """
+        Applies only to sell orders. Returns the opposite side
+        of the trade. Used to calculate stop-outs and profit/loss.
+        :return:
+        """
         return self._op_order
 
     @property
     def cycle_number(self):
+        """
+        The number of Market Maker order cycles the order has been through.
+        A high number of cycles means the order is stale.
+        :return:
+        """
         return self._cycle_number
 
     @property
     def stop_amount(self):
+        """
+        The price at which the sell order is stopped out of the trade.
+        based on the GdaxMarketMaker.stop_pct property.
+        :return:
+        """
         stop_pct = self.m.stop_pct
         op_order = self.op_order
         if not stop_pct:
@@ -72,13 +111,33 @@ class GdaxMMOrder(GdaxOrder):
 
     @property
     def locked(self):
+        """
+        Returns True if the order has been locked, False otherwise.
+        A locked order shouldnt get adjusted price/size-wise.
+        :return:
+        """
         return self.locked
 
     def lock(self, unlock_method=None):
+        """
+        Locks the order with an optional unlock method.
+
+        :param unlock_method: (callable, default None)
+            This method should be able to evaluate the GdaxMMOrder
+            and return false or raise an exception when an unlock SHOULD NOT occur.
+        :return:
+        """
+        if self._locked:
+            raise OrderLockError("Already locked: {}".format(self))
         self._locked = True
         self._unlock_method = unlock_method
 
     def unlock(self):
+        """
+        Unlocks the order, passing self to the
+        unlock method if one was provided.
+        :return:
+        """
         if self._unlock_method is not None:
             try:
                 if not self._unlock_method(self):
@@ -89,6 +148,11 @@ class GdaxMMOrder(GdaxOrder):
         self._locked = False
 
     def get_volume_until_fill(self):
+        """
+        Returns the volume required to fill
+        the order based on the given price.
+        :return:
+        """
         if self.side == 'buy':
             return self.m.book_feed.get_bid_depth(self.price)
         return self.m.book_feed.get_ask_depth(self.price)
@@ -115,7 +179,7 @@ class GdaxMMOrder(GdaxOrder):
 
             for _ in range(5):
                 depth_check = snap.calculate_ask_depth(max_price)
-                if depth_check >= 30:
+                if depth_check >= 30 or depth_check == 0:
                     break
                 max_price += spread_bit
                 logger.info("ask depth {} @ ${}".format(depth_check, max_price))
@@ -128,7 +192,7 @@ class GdaxMMOrder(GdaxOrder):
 
             for _ in range(5):
                 depth_check = snap.calculate_bid_depth(min_price)
-                if depth_check >= 30:
+                if depth_check >= 30 or depth_check == 0:
                     break
                 min_price -= spread_bit
                 depth_check = snap.calculate_bid_depth(min_price)
@@ -136,6 +200,12 @@ class GdaxMMOrder(GdaxOrder):
             return round(self.price - min_price, 2)
 
     def get_pnl(self, price=None):
+        """
+        Sell orders will return the amount of profit that is/will be generated
+        when the position is closed based on the current or provided price.
+        :param price: (float, default None)
+        :return: (float)
+        """
         op = self._op_order
         if op is not None:
             if price is None:
@@ -177,22 +247,28 @@ class GdaxMMOrder(GdaxOrder):
                                  "of same type '{}'".format(o_side))
 
     def register_order_cycle(self):
+        """
+        Increments the GdaxMMOrder.cycle_number - called by the
+        MarketMaker on each order evaluation cycle.
+        :return:
+        """
         self._cycle_number += 1
 
-    @staticmethod
-    def from_gdax_order(order, market_maker, op_order=None):
-        if isinstance(order, GdaxOrder):
-            d = order.to_dict()
-            mm_order = GdaxMMOrder(market_maker,
-                                   order.gdax,
-                                   order.product,
-                                   op_order=op_order,
-                                   **d)
-            return mm_order
-        return order
-
-    def get_price_adjusted_to_spread(self, spread=None, aggressive=True, amount_above=None, factor=0.8,
+    def get_price_adjusted_to_spread(self,
+                                     spread=None,
+                                     aggressive=True,
+                                     amount_above=None,
+                                     factor=0.8,
                                      min_profit=0.01):
+        """
+
+        :param spread:
+        :param aggressive:
+        :param amount_above:
+        :param factor:
+        :param min_profit:
+        :return:
+        """
 
         if not amount_above:
             if not spread:
@@ -216,23 +292,54 @@ class GdaxMMOrder(GdaxOrder):
 
         return price
 
-    def spread_price_out(self, p, other_prices, increment=True, step=0.03):
+    def get_price_incremented(self, p, other_prices, cap_out=None, increment=True, step=0.03, min_profit=0.01, _force=False):
+        try:
+            other_prices.remove(p)
+        except ValueError:
+            pass
+
         max_p = p + step
         min_p = p - step
         check_p = [x for x in other_prices
                    if x > min_p and x < max_p]
         p = round(p, 2)
+
         while check_p:
             if increment:
                 p += step
             else:
-                p += step
+                p -= step
             p = round(p, 2)
             max_p = p + (step * 2)
             min_p = p - (step * 2)
             check_p = [x for x in other_prices
                        if x >= min_p
                        and x <= max_p]
+
+        if cap_out is not None and _force is False:
+            if not increment and p < cap_out:
+                return self.get_price_incremented(p,
+                                                  other_prices,
+                                                  cap_out=cap_out,
+                                                  increment=True,
+                                                  step=step,
+                                                  _force=True)
+            elif increment and p > cap_out:
+                return self.get_price_incremented(p,
+                                                  other_prices,
+                                                  cap_out=cap_out,
+                                                  increment=False,
+                                                  step=step,
+                                                  _force=True)
+
+        if self.side == 'sell' and min_profit is not None:
+            p2 = self.get_price_target_via_op(min_profit)
+            if p > self.stop_amount:
+                # not stopped out
+                # so we want min profit
+                if p2 > p:
+                    # set price to min profit
+                    p = p2
         return p
 
     def get_price_adjusted_to_other_prices(self, other_prices=None, aggressive=True, step=0.03, min_profit=0.01):
@@ -240,7 +347,7 @@ class GdaxMMOrder(GdaxOrder):
             if self.side == 'buy':
                 other_prices = list(self.m.buy_orders.values())
             else:
-                other_prices = list(self.m.buy_orders.values())
+                other_prices = list(self.m.sell_orders.values())
             other_prices = list(sorted([o.price for o in other_prices]))
 
         other_prices = [p for p in other_prices
@@ -252,24 +359,10 @@ class GdaxMMOrder(GdaxOrder):
         if not other_prices:
             return my_min
 
+        _adj_price = partial(self.get_price_incremented, cap_out=step*10, step=step)
+
         def adj_price(p, increment=True):
-            max_p = p + (step * 2)
-            min_p = p - (step * 2)
-            check_p = [x for x in other_prices
-                       if x > min_p and x < max_p]
-            p = round(p, 2)
-            while check_p:
-                if increment:
-                    p += step
-                else:
-                    p += step
-                p = round(p, 2)
-                max_p = p + (step * 2)
-                min_p = p - (step * 2)
-                check_p = [x for x in other_prices
-                           if x >= min_p
-                           and x <= max_p]
-            return p
+            return _adj_price(p, other_prices, increment=increment)
 
         min_price = min(other_prices)
         max_price = max(other_prices)
@@ -283,7 +376,7 @@ class GdaxMMOrder(GdaxOrder):
                 if my_min >= max_and_step:
                     return adj_price(my_min, increment=True)
                 else:
-                    return adj_price(my_min, increment=True)
+                    return adj_price(my_min, increment=False)
 
             else:
                 # Non aggressive buys - position somewhere healthy
@@ -316,6 +409,12 @@ class GdaxMMOrder(GdaxOrder):
         while pnl < min_profit:
             price += 0.01
         return price
+
+    def get_price_target_via_op(self, min_diff=0.01):
+        try:
+            return self.op_order.price + min_diff
+        except AttributeError:
+            return self.price
 
     def get_other_order_prices(self, side='buy'):
         """
