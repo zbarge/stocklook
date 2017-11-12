@@ -158,6 +158,7 @@ class GdaxBookFeed(GdaxWebsocketClient):
             assert hasattr(self._log_to, 'write')
         self._current_ticker = None
         self._key_errs = 0
+        self._errs = 0
         self.message_count = 0
 
     @property
@@ -239,7 +240,10 @@ class GdaxBookFeed(GdaxWebsocketClient):
 
     def on_error(self, e):
         self._sequence = -1
+        self._errs += 1
         self.close()
+        if self._errs >= 3:
+            raise Exception(e)
         self.start()
 
     def add(self, order):

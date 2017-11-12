@@ -26,7 +26,7 @@ from time import sleep
 from stocklook.config import config
 from datetime import datetime, timedelta
 from stocklook.crypto.gdax.api import Gdax, GdaxAPIError
-from stocklook.utils.timetools import now, now_minus, timeout_check
+from stocklook.utils.timetools import now, now_minus, timeout_check, now_plus
 from stocklook.crypto.gdax.feeds.book_feed import GdaxBookFeed, BookSnapshot
 from stocklook.crypto.gdax.order_mm import GdaxMMOrder, GdaxOrderCancellationError, OrderLockError
 
@@ -282,7 +282,7 @@ class GdaxMarketMaker:
                                   t_data=self._t_data,
                                   seconds=seconds)
         start = now_minus(hours=hours_back)
-        end = now()
+        end = now_plus(days=1)
 
         if chart is None:
             from stocklook.crypto.gdax.chartdata import GdaxChartData
@@ -807,8 +807,10 @@ class GdaxMarketMaker:
         spreads/spend_pct/max_buys/etc.
         :return:
         """
+        t_change = self.ticker_changed(
+            'adjust_to_market_conditions', min_change=0.10)
         t = self.ticker_price
-        if t is None:
+        if t is None or not t_change:
             return None
 
         # 5 minute candles
@@ -819,6 +821,7 @@ class GdaxMarketMaker:
         avg_rsi5 = c5.avg_rsi
         avg_rng5 = c5.avg_range
         avg_vol5 = c5.avg_vol
+        ibars5 = c5.get_inside_bars()
 
         # 15 minute candles
         c15 = self.get_chart(time_frame=self._15M)
@@ -828,6 +831,7 @@ class GdaxMarketMaker:
         avg_rsi15 = c15.avg_rsi
         avg_rng15 = c15.avg_range
         avg_vol15 = c15.avg_vol
+        ibars15 = c15.get_inside_bars()
 
         # Hourly candles
         c1h = self.get_chart(time_frame=self._1H)
@@ -837,6 +841,7 @@ class GdaxMarketMaker:
         avg_rsi1h = c1h.avg_rsi
         avg_rng1h = c1h.avg_range
         avg_vol1h = c1h.avg_vol
+        ibars1h = c1h.get_inside_bars()
 
         # 4 hour candles
         c4h = self.get_chart(time_frame=self._4H)
@@ -846,14 +851,16 @@ class GdaxMarketMaker:
         avg_rsi4h = c4h.avg_rsi
         avg_rng4h = c4h.avg_range
         avg_vol4h = c4h.avg_vol
+        ibars4h = c4h.get_inside_bars()
 
         avg_rsi_avg = sum([avg_rsi5, avg_rsi1h, avg_rsi4h, avg_rsi15]) / 4
-        avg_rng_avg = sum([avg_rng5, avg_rng1h, avg_rng4h, avg_rsi15]) / 4
-        avg_vol_avg = sum([avg_vol5, avg_vol1h, avg_vol4h]) / 3
-        avg_o = sum([c1ho, c4ho, c5o]) / 3
-        avg_h = sum([c1hh, c4hh, c5h]) / 3
-        avg_l = sum([c1hl, c4hl, c5l]) / 3
-        avg_c = sum([c1hc, c4hc, c5c]) / 3
+        avg_rng_avg = sum([avg_rng5, avg_rng1h, avg_rng4h, avg_rng15]) / 4
+        avg_vol_avg = sum([avg_vol5, avg_vol1h, avg_vol4h, avg_vol15]) / 4
+        avg_o = sum([c1ho, c4ho, c5o, c15o]) / 4
+        avg_h = sum([c1hh, c4hh, c5h, c15h]) / 4
+        avg_l = sum([c1hl, c4hl, c5l, c15l]) / 4
+        avg_c = sum([c1hc, c4hc, c5c, c15c]) / 4
+        ibars = [ibars5, ibars15, ibars1h, ibars4h]
 
         logger.debug("Averages:\n\n"
                      "5 Minute:\nrsi: {}\nrng: {}\nvol: {}\n\n"
@@ -867,9 +874,9 @@ class GdaxMarketMaker:
         ))
 
         logger.debug("Prices:\n\n"
-                     "5 Minute:\no: {}\nh: {}\nl: {}\nc: {}"
-                     "1 Hour:\no: {}\nh: {}\nl: {}\nc: {}"
-                     "4 Hour:\no: {}\nh: {}\nl: {}\nc: {}"
+                     "5 Minute:\no: {}\nh: {}\nl: {}\nc: {}\n\n"
+                     "1 Hour:\no: {}\nh: {}\nl: {}\nc: {}\n\n"
+                     "4 Hour:\no: {}\nh: {}\nl: {}\nc: {}\n\n"
                      "Median:\no: {}\nh: {}\nl: {}\nc: {}".format(
                       c5o, c5h, c5l, c5c,
                       c1ho, c1hh, c1hl, c1hc,
@@ -877,6 +884,10 @@ class GdaxMarketMaker:
                       avg_o, avg_h, avg_l, avg_c
         ))
 
+        for ibar in ibars:
+            if not ibar:
+                continue
+            logger.debug(ibar)
 
     def register_order_cycle(self):
         """

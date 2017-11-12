@@ -21,6 +21,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+from stockstats import StockDataFrame
+from stocklook.patterns import InsideBars, HigherHighs
+
 
 def mean(numbers):
     return float(sum(numbers)) / max(len(numbers), 1)
@@ -44,7 +47,10 @@ def velocity(range, avg_range, volume, avg_volume):
 class GdaxChartData:
     SYNC_INTERVAL = 60*5
     OPEN = 'open'
+    HIGH = 'high'
+    LOW = 'low'
     CLOSE = 'close'
+    TIME = 'time'
     SMA5 = 'sma5'
     SMA8 = 'sma8'
     SMA18 = 'sma18'
@@ -53,6 +59,14 @@ class GdaxChartData:
     SMA200 = 'sma200'
     RANGE = 'range'
     RSI = 'rsi'
+    MACD = 'macd'
+    MACDS = 'macds'
+    MACDH = 'macdh'
+    RSI6 = 'rsi_6'
+    RSI12 = 'rsi_12'
+    TR = 'tr'
+    ATR = 'atr'
+
     PRICE_CHANGE = 'price_change'
     VELOCITY = 'velocity'
     VOLUME = 'volume'
@@ -80,7 +94,6 @@ class GdaxChartData:
         df = self.df
         mask = df[rng].isin(df[rng].dropna())
         return df.loc[mask, rng].mean()
-
 
     @property
     def avg_rsi(self):
@@ -114,14 +127,14 @@ class GdaxChartData:
                                    self.granularity,
                                    convert_dates=True,
                                    to_frame=True)
-
+        df = StockDataFrame.retype(df)
         close = df[self.CLOSE]
         df.loc[:, self.SMA5] = close.rolling(5).mean()
         df.loc[:, self.SMA8] = close.rolling(8).mean()
         df.loc[:, self.SMA18] = close.rolling(18).mean()
         df.loc[:, self.SMA50] = close.rolling(50).mean()
-        df.loc[:, self.SMA100] = close.rolling(50).mean()
-        df.loc[:, self.SMA200] = close.rolling(50).mean()
+        df.loc[:, self.SMA100] = close.rolling(100).mean()
+        df.loc[:, self.SMA200] = close.rolling(200).mean()
         df.loc[:, self.RANGE] = df.high - df.low
         df.loc[:, self.RSI] = RSI(close, 14)
         df.loc[:, self.PRICE_CHANGE] = close - close.shift(-1)
@@ -143,17 +156,88 @@ class GdaxChartData:
             label = c + '_diff'
             df.loc[:, label] = close - df[c]
 
-
+        df['macd']
+        df['macds']
+        df['macdh']
+        df['rsi_6']
+        df['rsi_12']
+        df['tr']
+        df['atr']
 
         return df
 
+    def get_inside_bars(self, df=None):
+        data = []
+        if df is None:
+            df = self.df
 
-class DataSet:
-    def __init__(self, gdax, product, data):
-        self.gdax = gdax
-        self.product = product
-        self.data = data
+        for idx, rec in df.iterrows():
+            o, h, l, c, t = rec['open'], rec['high'], rec['low'], rec['close'], rec['time']
+            if not data:
+                data.append([o, h, l, c, t])
+            else:
+                _, last_h, last_l, _, _ = data[-1]
+                if h <= last_h and l >= last_l:
+                    # current bar is inside the last bar
+                    data.append([o, h, l, c, t])
+                else:
+                    break
 
-    def sync(self):
-        pass
+        if len(data) > 1:
+            return InsideBars(data)
+
+    def get_last_inside_bars(self, df=None):
+        inside_bars = None
+        if df is None:
+            df = self.df
+        for i in range(df.index.size):
+            inside_bars = self.get_inside_bars(df[i:])
+            if inside_bars is not None:
+                break
+        return inside_bars
+
+    def get_higher_highs(self, df=None):
+        data = list()
+        if df is None:
+            df = self.df
+        for idx, rec in df.iterrows():
+            o, h, l, c, t = rec['open'], rec['high'], rec['low'], rec['close'], rec['time']
+            if not data:
+                data.append([o, h, l, c, t])
+            else:
+                _, last_h, last_l, _, _ = data[-1]
+                if h > last_h and l > last_l:
+                    data.append([o, h, l, c, t])
+                else:
+                    break
+        if len(data) > 1:
+            return HigherHighs(data=data)
+
+    def get_last_higher_highs(self, df=None):
+        highs = None
+        if df is None:
+            df = self.df
+
+        for i in range(df.index.size):
+            highs = self.get_higher_highs(df[i:])
+            if highs is not None:
+                break
+        return highs
+
+    def get_lower_lows(self, df=None):
+        data = list()
+        if df is None:
+            df = self.df
+        for idx, rec in df.iterrows():
+            o, h, l, c, t = rec['open'], rec['high'], rec['low'], rec['close'], rec['time']
+            if not data:
+                data.append([o, h, l, c, t])
+            else:
+                _, last_h, last_l, _, _ = data[-1]
+                if h < last_h and l < last_l:
+                    data.append([o, h, l, c, t])
+                else:
+                    break
+        if len(data) > 1:
+            return HigherHighs(data=data)
 

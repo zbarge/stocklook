@@ -170,7 +170,7 @@ def scan_price(gdax,
                     high_notify += v
                     low_notify += v
 
-        if now >= end_time:
+        if end_time and now >= end_time:
             break
 
         sleep(interval)

@@ -40,9 +40,20 @@ if __name__ == '__main__':
 
     m = GdaxMarketMaker(product_id='ETH-USD', gdax=g)
     m.book_feed.start()
-    sleep(15)
-    for _ in range(5):
-        m.adjust_to_market_conditions()
-        sleep(5)
+    sleep(10)
+
+
+    def adj_market():
+        for _ in range(2):
+            m.adjust_to_market_conditions()
+            sleep(5)
+
+        for c_name, cdf in m._charts.items():
+            f_path = os.path.join(config['DATA_DIRECTORY'], 'eth_{}.csv'.format(c_name))
+            last_bars = cdf.get_last_inside_bars()
+            print(last_bars)
+            cdf.df.to_csv(f_path, index=False)
+
+    adj_market()
 
 

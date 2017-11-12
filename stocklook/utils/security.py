@@ -98,6 +98,7 @@ class Credentials:
             # if it's found
             pw = keyring.get_password(service_name, username)
             if pw is not None:
+                self.data[service_name] = username
                 return pw
         except:
             pw = None
@@ -110,6 +111,7 @@ class Credentials:
         elif pw is None:
             # Securely set password with input.
             username = self.set_with_input(service_name, user=username, api=api)
+            self.data[service_name] = username
             return self.get(service_name, username, api)
 
     def set(self, service_name, username, password):
