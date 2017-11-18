@@ -33,8 +33,8 @@ ETH_HIGH = None
 SCAN_INTERVAL_SECONDS = 60
 
 BTC_CHANGE_RATE = 0.005
-ETH_CHANGE_RATE = 0.01
-LTC_CHANGE_RATE = 0.015
+ETH_CHANGE_RATE = 0.0075
+LTC_CHANGE_RATE = 0.0075
 
 if __name__ == '__main__':
     from time import sleep
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     threads = [
         eth_thread,
         btc_thread,
-        #ltc_thread,
+        ltc_thread,
     ]
 
     for i, t in enumerate(threads):
