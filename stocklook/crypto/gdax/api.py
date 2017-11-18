@@ -68,12 +68,16 @@ def gdax_call_api(url, method='get', **kwargs):
                 or '504' in e
 
         if retry:
-            sleep(2)
+            sleep(1)
             return gdax_call_api(url, method=method, **kwargs)
 
         raise
 
     if res.status_code != 200:
+
+        if res.status_code == 504:
+            return gdax_call_api(url, method=method, **kwargs)
+
         try:
             res_json = res.json()
         except (ValueError, AttributeError):

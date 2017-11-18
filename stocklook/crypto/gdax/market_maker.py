@@ -69,6 +69,7 @@ class GdaxMarketMaker:
         _4H: (60*60*4, 24*14, 60*60*8),
         _1D: (60*60*24, 24*28, 60*60*24),
     }
+
     def __init__(self,
                  book_feed=None,
                  product_id=None,
