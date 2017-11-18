@@ -159,6 +159,8 @@ class GdaxMarketMaker:
         self.manage_existing_orders = manage_existing_orders
         self.aggressive = aggressive
         self.currency = product_id.split('-')[1]
+        self._currency_balance = 0
+        self._coin_balance = 0
 
         self.stop = False
         self._book_snapshot = None
@@ -557,6 +559,12 @@ class GdaxMarketMaker:
 
         return new_orders
 
+    def adjust_currency_balance(self, amount, side='buy', filled=False):
+        if side == 'buy':
+            self._currency_balance -= amount
+        elif side == 'sell' and filled:
+            self._currency_balance += amount
+
     def handle_fill(self, order_id, replace=True):
         """
         Handles a buy or sell order that has been filled.
@@ -579,6 +587,14 @@ class GdaxMarketMaker:
         if pnl is not None:
             logger.info("Closed two-sided {} order, pnl: "
                         "${}".format(self.product_id, round(pnl, 2)))
+
+        # adjust currency balance
+        o_amt = order.price * order.size
+        if order.side == 'buy':
+            self._currency_balance -= o_amt
+        elif order.side == 'sell':
+            self._currency_balance += o_amt
+
 
         # Place the opposite order immediately
         if replace:
