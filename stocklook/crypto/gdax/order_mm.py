@@ -116,7 +116,7 @@ class GdaxMMOrder(GdaxOrder):
         A locked order shouldnt get adjusted price/size-wise.
         :return:
         """
-        return self.locked
+        return self._locked
 
     def lock(self, unlock_method=None):
         """
@@ -146,6 +146,11 @@ class GdaxMMOrder(GdaxOrder):
                 raise OrderLockError("Unlock method failure: {}".format(e))
 
         self._locked = False
+
+    def post(self, **kwargs):
+        return super(GdaxMMOrder, self).post(
+            sql_obj=kwargs.get('sql_obj', None),
+            verify_balance=False)
 
     def get_volume_until_fill(self):
         """
@@ -353,7 +358,7 @@ class GdaxMMOrder(GdaxOrder):
                                                   _force=True)
             elif increment and p > cap_out:
                 # increasing price exceeded cap out means
-                # we'll decrement the priec back around the othe prices.
+                # we'll decrement the price back around the other prices.
                 return self.get_price_incremented(p,
                                                   other_prices,
                                                   cap_out=cap_out,
@@ -395,10 +400,7 @@ class GdaxMMOrder(GdaxOrder):
         :return:
         """
         if other_prices is None:
-            if self.side == 'buy':
-                other_prices = list(self.m.buy_orders.values())
-            else:
-                other_prices = list(self.m.sell_orders.values())
+            other_prices = self.get_other_order_prices(side=self.side)
 
         my_min = self.get_price_adjusted_to_spread(spread=None,
                                                    aggressive=aggressive,
@@ -406,7 +408,6 @@ class GdaxMMOrder(GdaxOrder):
         if not other_prices:
             return my_min
 
-        # cap out either 5 steps higher or lower
         # cap may be ignored on sell orders
         f = len(other_prices)
         cap_out = (my_min+(step*f) if self.side == 'sell'
@@ -516,24 +517,22 @@ class GdaxMMOrder(GdaxOrder):
         if ticker:
             ticker_price = float(ticker['price'])
             if self.side == 'buy':
-                if price >= ticker_price - spread:
+                if price >= ticker_price:
                     price = ticker_price - spread
 
-            elif price <= ticker_price + spread:
+            elif price <= ticker_price:
                 price = ticker_price + spread
 
         o_prices = self.get_other_order_prices(side=self.side)
-        spread_add = round(spread / 2, 2)
 
-        while price in o_prices:
-            if self.side == 'buy':
-                # decrease buy price
-                price -= spread_add
-            else:
-                # increase sell price
-                price += spread_add
-
-        return price
+        return self.get_price_incremented(price,
+                                          o_prices,
+                                          # increment should be safe here
+                                          # as we're forcing price lower on buys
+                                          # and higher on sells
+                                          increment=(False if self.side == 'buy' else True),
+                                          step=(spread/2),
+                                          _force=True)
 
     def get_price_adjusted_to_wall(self, min_idx=2, wall_size=50, bump_value=0.01):
         """
