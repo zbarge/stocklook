@@ -168,7 +168,6 @@ class GdaxMarketMaker:
         self._tick_prices = dict()
         self._charts = dict()
 
-
     def place_order(self, price, size, side='buy', op_order=None, adjust_vs_open=True,
                     adjust_vs_wall=True, check_size=True, check_ticker=True, aggressive=True):
         """
@@ -212,13 +211,15 @@ class GdaxMarketMaker:
                     pass
                 # TODO: Finish this and adjust price against the wall
 
-        # Adjust position size down on buy orders
+        # Adjust position size on buy orders
         # based on total value of account
         if check_size and side == 'buy':
             pos_size = self.position_size
-            if pos_size < 0.01:
+            if pos_size <= 0.01:
+                # allowed position size
+                # is below minimum
                 return None
-            if size > pos_size:
+            if size != pos_size:
                 size = pos_size
 
         order = GdaxMMOrder(self,
@@ -240,7 +241,8 @@ class GdaxMarketMaker:
         # Adjust price against ticker if needed
         # As we don't want a market order.
         if check_ticker:
-            tick_price = order.get_price_adjusted_to_ticker(aggressive=aggressive)
+            tick_price = order.get_price_adjusted_to_ticker(
+                aggressive=aggressive)
             if tick_price:
                 order.price = tick_price
 
@@ -461,7 +463,6 @@ class GdaxMarketMaker:
             return None
 
         exclude = ([] if not exclude else exclude)
-        cancels = list()
         new_orders = list()
 
         p = self.ticker_price or 0
@@ -517,7 +518,7 @@ class GdaxMarketMaker:
                                                      order.size,
                                                      side=order.side,
                                                      op_order=order,
-                                                     adjust_vs_open=False)
+                                                     adjust_vs_open=True)
                         new_orders.append(new_order)
 
             elif order.side == 'sell':
@@ -915,8 +916,8 @@ if __name__ == '__main__':
     MIN_SPREAD = 0.20
     STOP_PCT = 0.05
     INTERVAL = 5
-    SPEND_PERCENT = 0.02
-    MAX_OPEN_BUYS = 4
+    SPEND_PERCENT = 0.005
+    MAX_OPEN_BUYS = 10
     MAX_OPEN_SELLS = 27
     MANAGE_OUTSIDE_ORDERS = False
 
