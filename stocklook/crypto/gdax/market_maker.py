@@ -171,6 +171,7 @@ class GdaxMarketMaker:
         self._t_data = dict()
         self._tick_prices = dict()
         self._charts = dict()
+        self._fill_queue = dict()
 
     def allow_high_frequency_trading(self):
         self._high_frequency = True
@@ -329,12 +330,13 @@ class GdaxMarketMaker:
         the dictionary of open buy and sell orders.
         :return: {GdaxMMOrder.id: GdaxMMOrder}
         """
+        self.handle_fill_queue()
         if not self.ticker_changed('orders', min_change=0.01):
             return self._orders
 
         open_orders = self.gdax.get_orders(paginate=False)
         open_ids = [o['id'] for o in open_orders if o['status'] != 'done']
-        existing_keys = self._orders.keys()
+        existing_keys = list(self._orders.keys())
 
         for key in existing_keys:
             if key not in open_ids:
@@ -587,12 +589,20 @@ class GdaxMarketMaker:
         :param replace:
         :return:
         """
-        order = self._orders.pop(order_id)
+        order = self._orders.pop(
+            order_id, self._fill_queue.pop(order_id, None))
+
+        if order is None:
+            assert order_id in self._fills.keys()
+
         if not order.is_filled():
-            sleep(4)
-            if not order.is_filled():
-                raise Exception("Order {} is not "
-                                "filled.".format(order))
+            if order.selling:
+                self._fill_queue[order.id] = order
+                logger.debug("Queueing delayed order "
+                             "{}".format(order))
+                return None
+            raise Exception("Order {} is not "
+                            "filled.".format(order))
         self._fills[order_id] = order
 
         # Log PNL if possible.
@@ -668,6 +678,10 @@ class GdaxMarketMaker:
             new_order = None
         return new_order
 
+    def handle_fill_queue(self):
+        keys = list(self._fill_queue.keys())
+        return [self.handle_fill(i) for i in keys]
+
     def handle_high_freq_orders(self):
         if not self._high_frequency:
             return False
@@ -713,7 +727,7 @@ class GdaxMarketMaker:
 
         for o in hf_buys:
             check_p = o.get_price_adjusted_to_wall_and_target_type()
-            if check_p - o.price > o.min_profit:
+            if check_p - o.price > o.min_step*2:
                 o.unlock()
                 self.cancel_order(o.id)
                 break

@@ -751,15 +751,24 @@ class GdaxMMOrder(GdaxOrder):
     def prepare_for_post(self):
         self.price = self.get_price_adjusted_to_wall_and_target_type()
         if self.buying:
-            bid = self.m.book_feed.get_bid()
-            b = float(bid['price'])
+            b = self.m.book_feed.get_bid()
+
             if b < self.price:
                 self.price = b - self.min_step
         elif self.selling:
-            ask = self.m.book_feed.get_ask()
-            a = float(ask['price'])
+            a = self.m.book_feed.get_ask()
+
             if a > self.price:
                 self.price = a + self.min_step
+
+        self.price = self.get_price_incremented(
+            self.price,
+            self.get_other_order_prices(self.side),
+            increment=self.selling,
+            step=self.min_step,
+            min_profit=self.min_profit,
+            _force=True,
+        )
 
     def get_clone(self):
         return GdaxMMOrder(self.market_maker,
