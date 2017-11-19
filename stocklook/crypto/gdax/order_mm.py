@@ -37,6 +37,14 @@ class GdaxMMOrder(GdaxOrder):
     """
     A market maker order with price management and analysis helpers.
     """
+    DEFAULT = 'default'
+    ACCUMULATION = 'accumulation'
+    HIGH_FREQ = 'high_frequency'
+    SPREAD = 'spread'
+    ORDER_TYPES = [DEFAULT, ACCUMULATION,
+                   HIGH_FREQ, SPREAD]
+
+
     def __init__(self, market_maker, *args, op_order=None, **kwargs):
         """
         :param market_maker: stocklook.crypto.gdax.market_maker.GdaxMarketMaker
@@ -61,7 +69,16 @@ class GdaxMMOrder(GdaxOrder):
         self._prices = list()
         self._unlock_method = None
         self._cycle_number = 0
+        self._targ_order = None
         GdaxOrder.__init__(self, *args, **kwargs)
+
+    @property
+    def buying(self):
+        return self.side == 'buy'
+
+    @property
+    def selling(self):
+        return self.side == 'sell'
 
     @property
     def m(self):
@@ -79,6 +96,10 @@ class GdaxMMOrder(GdaxOrder):
         :return:
         """
         return self._op_order
+
+    @property
+    def op_side(self):
+        return 'sell' if self.side == 'buy' else 'buy'
 
     @property
     def cycle_number(self):
@@ -110,6 +131,10 @@ class GdaxMMOrder(GdaxOrder):
         return op_price - (op_price * stop_pct)
 
     @property
+    def targ_order(self):
+        return self._targ_order
+
+    @property
     def locked(self):
         """
         Returns True if the order has been locked, False otherwise.
@@ -129,8 +154,9 @@ class GdaxMMOrder(GdaxOrder):
         """
         if self._locked:
             raise OrderLockError("Already locked: {}".format(self))
+        if unlock_method is not None:
+            self._unlock_method = unlock_method
         self._locked = True
-        self._unlock_method = unlock_method
 
     def unlock(self):
         """
@@ -224,7 +250,7 @@ class GdaxMMOrder(GdaxOrder):
             return round(sell_spend - buy_spend, 2)
         return None
 
-    def register_op_order(self, order):
+    def register_op_order(self, order, override_targ=True):
         """
         Registers the opposide side of the trade to the order.
         For example:
@@ -243,6 +269,18 @@ class GdaxMMOrder(GdaxOrder):
             # This is an order replacement
             # of the same type.
             self._op_order = o_op_order
+            targ_order = getattr(o_op_order, 'targ_order', None)
+            lock = getattr(o_op_order, 'locked', True)
+            if targ_order is not None:
+                self.register_target_order(
+                    targ_order, lock=lock, override=override_targ)
+            elif lock and not self.locked:
+                # order could be locked from previous if
+                # statement to match op_order- otherwise we will do
+                # that here
+                um = getattr(o_op_order, '_unlock_method', self._unlock_method)
+                self.lock(unlock_method=um)
+
         elif o_side != my_side:
             # The order is a different side
             # and therefore an opposite order.
@@ -366,7 +404,7 @@ class GdaxMMOrder(GdaxOrder):
                                                   step=step,
                                                   _force=True)
 
-        if self.side == 'sell' and min_profit is not None:
+        if self.selling and min_profit is not None:
             # We dont want to sell below minimum spread vs our
             # buy order unless we're stopped out.
             p2 = self.get_price_target_via_op(min_profit)
@@ -425,7 +463,7 @@ class GdaxMMOrder(GdaxOrder):
         max_and_step = max_price + step
         min_and_step = min_price - step
 
-        if self.side == 'buy':
+        if self.buying:
 
             if aggressive:
                 # Aggressive buys need to be near top
@@ -438,7 +476,7 @@ class GdaxMMOrder(GdaxOrder):
                 # Non aggressive buys - position somewhere healthy
                 return adj_price(my_min, increment=False)
 
-        elif self.side == 'sell':
+        elif self.selling:
             if aggressive:
                 # Aggressive sells should be near bottom
                 if my_min >= min_and_step:
@@ -516,7 +554,7 @@ class GdaxMMOrder(GdaxOrder):
 
         if ticker:
             ticker_price = float(ticker['price'])
-            if self.side == 'buy':
+            if self.buying:
                 if price >= ticker_price:
                     price = ticker_price - spread
 
@@ -555,3 +593,61 @@ class GdaxMMOrder(GdaxOrder):
                 else:
                     # price below the wall
                     return contents[0] - bump_value
+
+    def register_target_order(self, order=None, price=None, size=None, lock=True, override=False):
+        """
+        Registers a target GdaxMMOrder to be posted after the source order is filled.
+
+        :param order: (GdaxMMOrder, default None)
+            A GdaxMMOrder will be created if none is given.
+
+        :param price: (float, default None)
+            The price of the target order
+            A price should be given if :param order is None.
+
+        :param size: (float, default None)
+            The size of the target order.
+            None defaults to the source GdaxMMOrder.size
+
+        :param lock: (bool, default True)
+            True locks the target order to the given price/size...
+            other methods should respect a locked order and not adjust
+            it.
+
+        :param override: (bool, default False)
+            True will override an existing target order.
+
+        :return:
+        """
+        if self.locked or self._targ_order is not None:
+            if override is False:
+                raise OrderLockError("Cannot register target order "
+                                     "on a locked order. {}".format(self))
+            else:
+                # Not sure if we brute force unlock
+                # here..testing will tell.
+                self.unlock()
+
+        if size is None:
+            size = self.size
+
+        if order is None:
+            order = GdaxMMOrder(
+                            self.market_maker,
+                            self.gdax,
+                            self.product,
+                            op_order=self,
+                            side=self.op_side,
+                            size=size,
+                            price=price)
+
+        else:
+            assert order.side != self.side
+            order.register_op_order(self, override_targ=True)
+
+        if lock and not order.locked:
+            order.lock()
+
+        self._targ_order = order
+
+        return order
