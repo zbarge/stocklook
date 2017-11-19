@@ -161,6 +161,7 @@ class GdaxMarketMaker:
         self.currency = product_id.split('-')[1]
         self._currency_balance = 0
         self._coin_balance = 0
+        self._high_frequency = False
 
         self.stop = False
         self._book_snapshot = None
@@ -170,6 +171,9 @@ class GdaxMarketMaker:
         self._t_data = dict()
         self._tick_prices = dict()
         self._charts = dict()
+
+    def allow_high_frequency_trading(self):
+        self._high_frequency = True
 
     def place_order(self, price=None, size=None, side='buy', order=None, op_order=None, adjust_vs_open=True,
                     adjust_vs_wall=True, check_size=True, check_ticker=True, aggressive=True):
@@ -325,17 +329,16 @@ class GdaxMarketMaker:
         the dictionary of open buy and sell orders.
         :return: {GdaxMMOrder.id: GdaxMMOrder}
         """
-        if not self.ticker_changed('orders', min_change=self.min_spread/2):
+        if not self.ticker_changed('orders', min_change=0.01):
             return self._orders
 
-        open_orders = self.gdax.get_orders(status='open',
-                                           paginate=False   #
-                                           )
-        open_ids = [o['id'] for o in open_orders]
+        open_orders = self.gdax.get_orders(paginate=False)
+        open_ids = [o['id'] for o in open_orders if o['status'] != 'done']
         existing_keys = self._orders.keys()
-        filled = [o_id for o_id in existing_keys
-                  if o_id not in open_ids]
-        [self.handle_fill(o) for o in filled]
+
+        for key in existing_keys:
+            if key not in open_ids:
+                self.handle_fill(key)
 
         if self.manage_existing_orders:
             # Cache any orders placed on the account.
@@ -586,8 +589,10 @@ class GdaxMarketMaker:
         """
         order = self._orders.pop(order_id)
         if not order.is_filled():
-            raise Exception("Order {} is not "
-                            "filled.".format(order))
+            sleep(4)
+            if not order.is_filled():
+                raise Exception("Order {} is not "
+                                "filled.".format(order))
         self._fills[order_id] = order
 
         # Log PNL if possible.
@@ -603,19 +608,18 @@ class GdaxMarketMaker:
         elif order.side == 'sell':
             self._currency_balance += o_amt
 
-
         # Place the opposite order immediately
         if replace:
             buy_orders = self.buy_orders
             sell_orders = self.sell_orders
             spread = (self.min_spread if self.aggressive
                       else self.max_spread)
-            if order.side == 'buy':
+            if order.buying:
                 maxed = None
                 new_side = 'sell'
                 new_price = order.price + spread
 
-            elif order.side == 'sell':
+            else:  # order selling
                 maxed = (len(buy_orders) > self.max_open_buys or
                          len(sell_orders) > self.max_open_sells)
                 new_side = 'buy'
@@ -624,6 +628,10 @@ class GdaxMarketMaker:
             # priority 1: place target order
             targ_order = getattr(order, 'targ_order', None)
             if targ_order is not None:
+                # We expect price to be adjusted here
+                # if necessary, no other adjustments
+                # allowed.
+                targ_order.prepare_for_post()
                 new_order = self.place_order(
                                  order=targ_order,
                                  op_order=order,
@@ -631,6 +639,11 @@ class GdaxMarketMaker:
                                  check_size=False,
                                  check_ticker=False,
                                  aggressive=self.aggressive)
+                # price is irrelevant here as were expecting
+                # the new target order price to be
+                # adjusted just before placement.
+                new_order.register_target_order(
+                    price=new_price, lock=True, override=True)
 
             # priority 2: place opposite order if not maxed.
             elif not maxed:
@@ -654,6 +667,56 @@ class GdaxMarketMaker:
         else:
             new_order = None
         return new_order
+
+    def handle_high_freq_orders(self):
+        if not self._high_frequency:
+            return False
+
+        o_vals = list(self._orders.values())
+        hf_orders = [o for o in o_vals
+                     if o.target_type == o.HIGH_FREQ]
+        hf_buys = [o for o in hf_orders if o.side == 'buy']
+        hf_sells = [o for o in hf_orders if o.side == 'sell']
+
+        try:
+            first_o = [o for o in o_vals
+                       if not o.locked][0]
+        except IndexError:
+            return False
+
+        if len(hf_orders) < 2:
+            pos = self.position_size
+            if pos <= 0.01:
+                pos = 0.8
+            else:
+                pos*= 3
+
+            order = first_o.get_clone()
+            order.side = 'buy'
+            order.target_type = order.HIGH_FREQ
+            order.min_profit = 0.05
+            order.min_step = 0.05
+            order.size = pos
+
+            order.prepare_for_post()
+
+
+            self.place_order(order=order,
+                             adjust_vs_open=False,
+                             adjust_vs_wall=False,
+                             check_size=False,
+                             check_ticker=False)
+
+            # set the target order
+            t_price = order.get_price_adjusted_to_wall_and_target_type(side='sell')
+            order.register_target_order(price=t_price, lock=True, override=True )
+
+        for o in hf_buys:
+            check_p = o.get_price_adjusted_to_wall_and_target_type()
+            if check_p - o.price > o.min_profit:
+                o.unlock()
+                self.cancel_order(o.id)
+                break
 
     def cancel_order(self, order_id):
         """
@@ -690,18 +753,22 @@ class GdaxMarketMaker:
 
         return order
 
-    def get_book_snapshot(self):
+    def get_book_snapshot(self, refresh=False):
         """
         Returns a new BookSnapshot or refreshes the
         existing BookSnapshot on an interval.
         :return:
         """
+        t_out = self.ticker_changed('get_book_snapshot')
+
         if self._book_snapshot is None:
             book = self.book_feed.get_current_book()
             book['bids'].reverse()
             self._book_snapshot = BookSnapshot(book, self.book_feed)
-        elif self._timeout():
+
+        elif t_out or refresh is True:
             self._book_snapshot.refresh()
+
         return self._book_snapshot
 
     def map_open_orders_to_fills(self):
@@ -824,10 +891,15 @@ class GdaxMarketMaker:
                 self.register_order_cycle()
 
             else:
-                logger.debug("{} open buy orders & {} open sell orders, ticker ${}".format(
-                    len(self.buy_orders), len(self.sell_orders), tick_price))
+                logger.debug("{} open buy orders\n"
+                             "{} open sell orders\n"
+                             "ticker ${}\n"
+                             "allowed positiion size: {}".format(
+                              len(self.buy_orders), len(self.sell_orders),
+                              tick_price, size_avail))
 
             self.shift_orders(exclude=new_orders)
+            self.handle_high_freq_orders()
             sleep(self.interval)
 
         self.book_feed.close()
@@ -978,6 +1050,7 @@ if __name__ == '__main__':
                         manage_existing_orders=MANAGE_OUTSIDE_ORDERS)
 
     m.map_open_orders_to_fills()
+    m.allow_high_frequency_trading()
     m.run()
 
 
