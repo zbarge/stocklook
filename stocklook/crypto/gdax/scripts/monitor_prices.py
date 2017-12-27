@@ -56,9 +56,9 @@ if __name__ == '__main__':
     eth_thread = Thread(target=scan_price, args=eth_args)
 
     threads = [
-        eth_thread,
+        #eth_thread,
         btc_thread,
-        ltc_thread,
+        #ltc_thread,
     ]
 
     for i, t in enumerate(threads):

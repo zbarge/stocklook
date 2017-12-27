@@ -21,16 +21,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+from stocklook.utils.security import Credentials
+# You should remove USERNAME/PASSWORD variables
+# after running this script.
 
-# You should remove USERNAME/PASSWORD variables after running this script.
-
-SERVICE_NAME = 'coinbase'
+SERVICE_NAME = Credentials.GMAIL
 USER_NAME = ''
 PASSWORD = ''
 PASSPHRASE = None
 
 
 if __name__ == '__main__':
-    from stocklook.utils.security import Credentials
+
     c = Credentials()
     c.reset_credentials(SERVICE_NAME, USER_NAME, PASSWORD, PASSPHRASE)

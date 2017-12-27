@@ -533,6 +533,18 @@ class GdaxOrder:
         if sql_obj:
             self.update_sql_object(sql_obj)
 
+    def post_after_block_height(self, block_num, check_interval=60, **order_post_kwargs):
+        if 'BTC' in self.currency:
+            from stocklook.crypto.bitcoin import btc_get_block_height as get_height
+        else:
+            raise NotImplementedError("This functionality is currently "
+                                      "only supported for BTC.")
+
+        while get_height() <= block_num:
+            sleep(check_interval)
+
+        return self.post(**order_post_kwargs)
+
     def to_sql_object(self):
         """
         Generates a GdaxSQLOrderObject
@@ -1047,3 +1059,7 @@ class GdaxOrderSystem:
         :return:
         """
         return self.gdax.get_orders(order_id=order_id, paginate=paginate)
+
+
+
+
