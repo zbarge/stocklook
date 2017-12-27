@@ -526,7 +526,7 @@ class Gdax:
         else:
             ext = 'orders'
 
-        p = dict(status=status)
+        p = (dict(status=status) if status else None)
         res = self.get(ext, params=p)
 
         if not paginate:

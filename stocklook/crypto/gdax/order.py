@@ -159,6 +159,7 @@ class GdaxOrder:
         self._total_spend = None
         self.coin_currency, self.base_currency = product.split('-')
         self.order_sys = order_sys
+        self._update_time = None
 
     @property
     def json(self):
@@ -229,6 +230,7 @@ class GdaxOrder:
         self.executed_value = float(data.get('executed_value', 0))
         self.status = data.get('status')
         self.settled = data.get('settled')
+        self._update_time = now()
 
     @property
     def total_spend(self):
@@ -392,7 +394,7 @@ class GdaxOrder:
         if update:
             self.update()
 
-        return self.status and self.status == 'done'
+        return self.status and self.status not in ['canceled', 'open']
 
     def wait_for_fill(self, interval=30, timeout=60*60, cancel=False):
         """
@@ -531,6 +533,18 @@ class GdaxOrder:
         if sql_obj:
             self.update_sql_object(sql_obj)
 
+    def post_after_block_height(self, block_num, check_interval=60, **order_post_kwargs):
+        if 'BTC' in self.currency:
+            from stocklook.crypto.bitcoin import btc_get_block_height as get_height
+        else:
+            raise NotImplementedError("This functionality is currently "
+                                      "only supported for BTC.")
+
+        while get_height() <= block_num:
+            sleep(check_interval)
+
+        return self.post(**order_post_kwargs)
+
     def to_sql_object(self):
         """
         Generates a GdaxSQLOrderObject
@@ -574,15 +588,22 @@ class GdaxOrder:
     def __repr__(self):
         return 'Product: {}\n' \
                'Order Type: {}\n' \
+               'Order Side: {}\n'\
                'Price: ${}\n' \
                'Funds: ${}\n' \
                'Status: {}\n ' \
-               'Size: {}'.format(self.product,
+               'Size: {}\n' \
+               'Settled: {}\n' \
+               'Last Updated: {}\n'.format(
+                                 self.product,
                                  self.order_type,
+                                 self.side,
                                  self.price,
                                  self.funds,
                                  self.status,
-                                 self.size)
+                                 self.size,
+                                 self.settled,
+                                 self._update_time)
 
 
 class GdaxTrailingStop(Thread):
@@ -1038,3 +1059,7 @@ class GdaxOrderSystem:
         :return:
         """
         return self.gdax.get_orders(order_id=order_id, paginate=paginate)
+
+
+
+

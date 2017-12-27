@@ -107,7 +107,7 @@ class GdaxAccount:
         """
         if self.currency == self.USD:
             return self.balance
-        elif self.balance and self.balance == 0:
+        elif not self.balance:
             return 0
         return round(self.price * self.balance, 2)
 

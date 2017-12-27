@@ -37,7 +37,14 @@ class GdaxMMOrder(GdaxOrder):
     """
     A market maker order with price management and analysis helpers.
     """
-    def __init__(self, market_maker, *args, op_order=None, **kwargs):
+    DEFAULT = 'default'
+    ACCUMULATION = 'accumulation'
+    HIGH_FREQ = 'high_frequency'
+    SPREAD = 'spread'
+    TARGET_TYPES = [DEFAULT, ACCUMULATION,
+                    HIGH_FREQ, SPREAD]
+
+    def __init__(self, market_maker, *args, op_order=None, target_type=None, **kwargs):
         """
         :param market_maker: stocklook.crypto.gdax.market_maker.GdaxMarketMaker
         :param args: stocklook.crypto.gdax.order.GdaxOrder(*args)
@@ -54,14 +61,30 @@ class GdaxMMOrder(GdaxOrder):
                             size=0.05
             )
         """
+        if target_type is None:
+            target_type = self.DEFAULT
+
         self.market_maker = market_maker
         self._op_order = op_order
+        self._target_type = target_type
         self._fill_chain = list()
         self._locked = False
         self._prices = list()
         self._unlock_method = None
         self._cycle_number = 0
+        self._targ_order = None
+        self.min_profit = kwargs.pop('min_profit', 0.01)
+        self.min_step = kwargs.pop('min_step', 0.01)
+
         GdaxOrder.__init__(self, *args, **kwargs)
+
+    @property
+    def buying(self):
+        return self.side == 'buy'
+
+    @property
+    def selling(self):
+        return self.side == 'sell'
 
     @property
     def m(self):
@@ -79,6 +102,10 @@ class GdaxMMOrder(GdaxOrder):
         :return:
         """
         return self._op_order
+
+    @property
+    def op_side(self):
+        return 'sell' if self.side == 'buy' else 'buy'
 
     @property
     def cycle_number(self):
@@ -110,6 +137,30 @@ class GdaxMMOrder(GdaxOrder):
         return op_price - (op_price * stop_pct)
 
     @property
+    def targ_order(self):
+        return self._targ_order
+
+    @property
+    def target_type(self):
+        return self._target_type
+
+    @target_type.setter
+    def target_type(self, x):
+        if x:
+            assert x in self.TARGET_TYPES
+            self._target_type = x
+
+    @property
+    def wall_size(self):
+        cc = self.coin_currency
+        if cc == 'BTC':
+            return 10
+        elif cc == 'ETH':
+            return 30
+        elif cc == 'LTC':
+            return 50
+
+    @property
     def locked(self):
         """
         Returns True if the order has been locked, False otherwise.
@@ -129,8 +180,9 @@ class GdaxMMOrder(GdaxOrder):
         """
         if self._locked:
             raise OrderLockError("Already locked: {}".format(self))
+        if unlock_method is not None:
+            self._unlock_method = unlock_method
         self._locked = True
-        self._unlock_method = unlock_method
 
     def unlock(self):
         """
@@ -224,7 +276,7 @@ class GdaxMMOrder(GdaxOrder):
             return round(sell_spend - buy_spend, 2)
         return None
 
-    def register_op_order(self, order):
+    def register_op_order(self, order, override_targ=True):
         """
         Registers the opposide side of the trade to the order.
         For example:
@@ -243,6 +295,18 @@ class GdaxMMOrder(GdaxOrder):
             # This is an order replacement
             # of the same type.
             self._op_order = o_op_order
+            targ_order = getattr(o_op_order, 'targ_order', None)
+            lock = getattr(o_op_order, 'locked', True)
+            if targ_order is not None:
+                self.register_target_order(
+                    targ_order, lock=lock, override=override_targ)
+            elif lock and not self.locked:
+                # order could be locked from previous if
+                # statement to match op_order- otherwise we will do
+                # that here
+                um = getattr(o_op_order, '_unlock_method', self._unlock_method)
+                self.lock(unlock_method=um)
+
         elif o_side != my_side:
             # The order is a different side
             # and therefore an opposite order.
@@ -319,10 +383,6 @@ class GdaxMMOrder(GdaxOrder):
         :param _force:
         :return:
         """
-        try:
-            other_prices.remove(p)
-        except ValueError:
-            pass
 
         # make a range around the current price by 1 step
         max_p = p + step
@@ -366,7 +426,7 @@ class GdaxMMOrder(GdaxOrder):
                                                   step=step,
                                                   _force=True)
 
-        if self.side == 'sell' and min_profit is not None:
+        if self.selling and min_profit is not None:
             # We dont want to sell below minimum spread vs our
             # buy order unless we're stopped out.
             p2 = self.get_price_target_via_op(min_profit)
@@ -415,17 +475,22 @@ class GdaxMMOrder(GdaxOrder):
 
         _adj_price = partial(self.get_price_incremented,
                              cap_out=cap_out,
-                             step=step)
+                             )
 
-        def adj_price(p, increment=True):
-            return _adj_price(p, other_prices, increment=increment)
+        def adj_price(p, increment=True, half_step=False):
+            if half_step:
+                s = step/2
+            else:
+                s = step
+
+            return _adj_price(p, other_prices, increment=increment, step=s)
 
         min_price = min(other_prices)
         max_price = max(other_prices)
         max_and_step = max_price + step
         min_and_step = min_price - step
 
-        if self.side == 'buy':
+        if self.buying:
 
             if aggressive:
                 # Aggressive buys need to be near top
@@ -438,16 +503,16 @@ class GdaxMMOrder(GdaxOrder):
                 # Non aggressive buys - position somewhere healthy
                 return adj_price(my_min, increment=False)
 
-        elif self.side == 'sell':
+        elif self.selling:
             if aggressive:
                 # Aggressive sells should be near bottom
                 if my_min >= min_and_step:
-                    return adj_price(my_min, increment=False)
+                    return adj_price(my_min, increment=False, half_step=True)
                 else:
-                    return adj_price(my_min, increment=True)
+                    return adj_price(my_min, increment=True, half_step=True)
             else:
                 # Non aggressive sells - position somewhere healthy
-                return adj_price(my_min, increment=True)
+                return adj_price(my_min, increment=True, half_step=True)
 
     def get_price_adjusted_to_profit_target(self, min_profit=0.01):
         """
@@ -479,7 +544,7 @@ class GdaxMMOrder(GdaxOrder):
         :return:
         """
         return [round(o.price, 2) for o in self.m._orders.values()
-                if o.side == side]
+                if o.side == side and o.id != self.id]
 
     def get_price_adjusted_to_ticker(self, price=None, ticker=None, aggressive=True, adjust_vs_open=True):
         """
@@ -516,7 +581,7 @@ class GdaxMMOrder(GdaxOrder):
 
         if ticker:
             ticker_price = float(ticker['price'])
-            if self.side == 'buy':
+            if self.buying:
                 if price >= ticker_price:
                     price = ticker_price - spread
 
@@ -531,10 +596,10 @@ class GdaxMMOrder(GdaxOrder):
                                           # as we're forcing price lower on buys
                                           # and higher on sells
                                           increment=(False if self.side == 'buy' else True),
-                                          step=(spread/2),
+                                          step=spread,
                                           _force=True)
 
-    def get_price_adjusted_to_wall(self, min_idx=2, wall_size=50, bump_value=0.01):
+    def get_price_adjusted_to_wall(self, snap=None, min_idx=2, wall_size=50, bump_value=0.01):
         """
         Returns the price nearest the wall, sell order placed just below the wall
         and buy orders placed just above the wall.
@@ -543,15 +608,184 @@ class GdaxMMOrder(GdaxOrder):
         :param bump_value:
         :return:
         """
-        snap = self.m.get_book_snapshot()
+        if snap is None:
+            snap = self.m.get_book_snapshot(refresh=True)
         data = (snap.bids if self.side == 'buy' else snap.asks)
 
         for idx, contents in enumerate(data):
             # minimum size and index position
             if contents[1] >= wall_size and idx >= min_idx:
+                w = contents[0]
                 if self.side == 'buy':
+
+                    if idx == 0:
+                        # first index we'd market buy
+                        return w - bump_value
+
                     # price above the wall
-                    return contents[0] + bump_value
+                    return w + bump_value
                 else:
+
+                    if idx == 0:
+                        # first index we'd market buy
+                        return w + bump_value
                     # price below the wall
-                    return contents[0] - bump_value
+                    return w - bump_value
+
+    def register_target_order(self, order=None, price=None, size=None, lock=True, override=False):
+        """
+        Registers a target GdaxMMOrder to be posted after the source order is filled.
+
+        :param order: (GdaxMMOrder, default None)
+            A GdaxMMOrder will be created if none is given.
+
+        :param price: (float, default None)
+            The price of the target order
+            A price should be given if :param order is None.
+
+        :param size: (float, default None)
+            The size of the target order.
+            None defaults to the source GdaxMMOrder.size
+
+        :param lock: (bool, default True)
+            True locks the target order to the given price/size...
+            other methods should respect a locked order and not adjust
+            it.
+
+        :param override: (bool, default False)
+            True will override an existing target order.
+
+        :return:
+        """
+        if self.locked or self._targ_order is not None:
+            if override is False:
+                raise OrderLockError("Cannot register target order "
+                                     "on a locked order. {}".format(self))
+            else:
+                # Not sure if we brute force unlock
+                # here..testing will tell.
+                self.unlock()
+
+        if size is None:
+            size = self.size
+
+        if order is None:
+            order = GdaxMMOrder(
+                            self.market_maker,
+                            self.gdax,
+                            self.product,
+                            side=self.op_side,
+                            size=size,
+                            price=price)
+
+        assert order.side != self.side
+        order.register_op_order(self, override_targ=True)
+        order.target_type = self.target_type
+
+        if lock and not order.locked:
+            order.lock()
+
+        self._targ_order = order
+
+        return order
+
+    def get_price_adjusted_to_wall_and_target_type(
+            self, p=None, side=None, wall_size=None, step=None,
+            min_wall_idx=0, min_profit=None,
+            adj_vs_open=True):
+        """
+        Adjusts order price if needed to avoid market buying at a minimum.
+        Ignores whether or not the order is locked.
+
+        :param p:
+        :param side:
+        :param wall_size:
+        :param step:
+        :param min_wall_idx:
+        :param min_profit:
+        :param adj_vs_open:
+        :return:
+        """
+        p = (self.price if not p else p)
+        wall_size = (self.wall_size if not wall_size else wall_size)
+        step = (self.min_step if step is None else step)
+        min_profit = (self.min_profit if not min_profit else min_profit)
+        side = (self.side if side is None else side)
+
+        op = self.get_other_order_prices(side=self.side)
+        s = self.m.get_book_snapshot(refresh=True)
+        bprice, bsize, bid = s.highest_bid
+        aprice, asize, aid = s.lowest_ask
+
+        wall_adj_price = self.get_price_adjusted_to_wall(
+            snap=s, min_idx=min_wall_idx,
+            wall_size=wall_size, bump_value=step)
+        owall_adj_price = self.get_price_incremented(
+            wall_adj_price, op,
+            step=step,
+            increment=self.selling,
+            min_profit=min_profit,
+            _force=True)
+
+        if side == 'buy':
+            if self.target_type == self.HIGH_FREQ:
+                p = owall_adj_price
+            elif p >= bprice:
+                p = bprice - step
+        else:
+            if self.target_type == self.HIGH_FREQ:
+                p = owall_adj_price
+            elif p <= aprice:
+                p = aprice + step
+
+        if adj_vs_open:
+            p = self.get_price_incremented(
+                p, op,
+                step=step,
+                increment=side == 'sell',
+                min_profit=min_profit,
+                _force=True)
+
+        return p
+
+    def prepare_for_post(self):
+        self.price = self.get_price_adjusted_to_wall_and_target_type()
+        if self.buying:
+            b = self.m.book_feed.get_bid()
+
+            if b < self.price:
+                self.price = b - self.min_step
+        elif self.selling:
+            a = self.m.book_feed.get_ask()
+
+            if a > self.price:
+                self.price = a + self.min_step
+
+        self.price = self.get_price_incremented(
+            self.price,
+            self.get_other_order_prices(self.side),
+            increment=self.selling,
+            step=self.min_step,
+            min_profit=self.min_profit,
+            _force=True,
+        )
+
+    def get_clone(self):
+        return GdaxMMOrder(self.market_maker,
+                           self.gdax,
+                           self.product,
+                           price=self.price,
+                           size=self.size,
+                           side=self.side,
+                           target_type=self.target_type,
+                           min_profit=self.min_profit,
+                           min_step=self.min_step)
+
+
+
+
+
+
+
+
+

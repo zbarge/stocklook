@@ -1,4 +1,4 @@
-from stocklook.crypto import (get_bitcoin_price,
+from stocklook.crypto import (btc_get_price_usd,
                               btc_to_usd,
                               Poloniex,
                               PoloCurrencyPair,

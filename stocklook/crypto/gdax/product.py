@@ -33,7 +33,8 @@ class GdaxProducts:
     BTC_USD = 'BTC-USD'
     ETH_USD = 'ETH-USD'
     LTC_USD = 'LTC-USD'
-    LIST = [BTC_USD, ETH_USD, LTC_USD]
+    BCH_USD = 'BCH-USD'
+    LIST = [BTC_USD, ETH_USD, LTC_USD, BCH_USD]
 
 
 class GdaxProduct:
