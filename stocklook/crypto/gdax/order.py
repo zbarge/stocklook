@@ -498,6 +498,9 @@ class GdaxOrder:
         if size < .01 and size > 0:
             raise GdaxMinOrderSizeError("Order size must be "
                                         "greater than 0.01, not {}".format(size))
+
+        # Potentially verify balance
+        # before placing the order.
         if verify_balance:
             self.gdax.sync_accounts()
 
@@ -533,8 +536,17 @@ class GdaxOrder:
         if sql_obj:
             self.update_sql_object(sql_obj)
 
-    def post_after_block_height(self, block_num, check_interval=60, **order_post_kwargs):
-        if 'BTC' in self.currency:
+    def post_after_block_height(self, block_num, check_interval=20, **order_post_kwargs):
+        """
+        Places an order after a given block number has passed.
+        If the provided block number has passed the order is placed immediately.
+
+        :param block_num:
+        :param check_interval:
+        :param order_post_kwargs:
+        :return:
+        """
+        if 'BTC' in self.product.upper():
             from stocklook.crypto.bitcoin import btc_get_block_height as get_height
         else:
             raise NotImplementedError("This functionality is currently "
