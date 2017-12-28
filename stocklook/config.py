@@ -32,6 +32,7 @@ POLONIEX_KEY = 'POLONIEX_KEY'
 GDAX_KEY = 'GDAX_KEY'
 COINBASE_KEY = 'COINBASE_KEY'
 STOCKLOOK_EMAIL = 'STOCKLOOK_EMAIL'
+STOCKLOOK_NOTIFY_ADDRESS = 'STOCKLOOK_NOTIFY_ADDRESS'
 
 # GDAX_FEED_URL_KWARGS
 # Because SQLite couldn't hang.
@@ -52,6 +53,8 @@ retrieve/store usernames and API Keys while securely storing API secrets/passphr
 and passwords in the encrypted facilities provided by the keyring package.
 """
 config = dict(GMAIL_EMAIL=env.get(STOCKLOOK_EMAIL, None),
+              STOCKLOOK_EMAIL=env.get(STOCKLOOK_EMAIL, None),
+              STOCKLOOK_NOTIFY_ADDRESS=env.get(STOCKLOOK_NOTIFY_ADDRESS, None),
               DATA_DIRECTORY=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data'),
               POLONIEX_KEY=env.get(POLONIEX_KEY, None),
               COINBASE_KEY=env.get(COINBASE_KEY, None),

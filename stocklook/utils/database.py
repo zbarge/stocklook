@@ -52,6 +52,8 @@ def get_python_dtypes(sql_table, date_type=None, include_str=False):
     return d
 
 
+
+
 class DatabaseLoadingThread(Thread):
     """
     A thread class that handles the loading of dict objects

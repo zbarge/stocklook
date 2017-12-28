@@ -23,15 +23,16 @@ SOFTWARE.
 """
 
 import pandas as pd
+import logging as lg
+from warnings import warn
 import hmac, hashlib, time, requests, base64, json
 from requests.auth import AuthBase
 from stocklook.utils import rate_limited
+from stocklook.utils.api import call_api
 from stocklook.utils.timetools import timestamp_to_iso8601, timestamp_from_utc, timeout_check
 from .account import GdaxAccount
 from .product import GdaxProduct, GdaxProducts
-from time import sleep
-from warnings import warn
-import logging as lg
+
 logger = lg.getLogger(__name__)
 
 
@@ -49,47 +50,8 @@ def gdax_call_api(url, method='get', **kwargs):
     :param kwargs:
     :return:
     """
-    try:
-        if method == 'get':
-            res = requests.get(url, **kwargs)
-        elif method == 'delete':
-            res = requests.delete(url, **kwargs)
-        elif method == 'post':
-            res = requests.post(url, **kwargs)
-        else:
-            raise NotImplementedError("Method '{}' not available "
-                                      "for calling API.".format(method))
-    except Exception as e:
-        e = str(e)
-        retry = '11001' in e \
-                or 'unreachable host' in e \
-                or ('forcibly' in e
-                    and 'existing' in e)\
-                or '504' in e
+    return call_api(url, method, _api_exception_cls=GdaxAPIError, **kwargs)
 
-        if retry:
-            sleep(1)
-            return gdax_call_api(url, method=method, **kwargs)
-
-        raise
-
-    if res.status_code != 200:
-
-        if res.status_code == 504:
-            return gdax_call_api(url, method=method, **kwargs)
-
-        try:
-            res_json = res.json()
-        except (ValueError, AttributeError):
-            res_json = ''
-
-        msg = '<{}>: method: {}:{}, {}'.format(res.status_code,
-                                               method,
-                                               res.url,
-                                               res_json)
-        raise GdaxAPIError(msg)
-
-    return res
 
 
 class CoinbaseExchangeAuth(AuthBase):
