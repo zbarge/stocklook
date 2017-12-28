@@ -25,14 +25,35 @@ import os
 import logging
 
 DEFAULT_LOG_LVL = logging.DEBUG
-# Environment variables to load
-# into config dictionary.
+DEFAULT_PYTZ_TIMEZONE = 'US/Pacific'
+DEFAULT_DATA_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+
+# Environment variables below will be loaded into the config dictionary.
+# The stocklook library uses this config dictionary to access private information
+# like keys and secrets. The values of these variables should be used as the
+# key name and added to the OS environment.
+
+# Alternatively, a program can inject these variable names into the config dictionary here
+# If there is some other method of storing private information.
 env = os.environ
-POLONIEX_KEY = 'POLONIEX_KEY'
-GDAX_KEY = 'GDAX_KEY'
 COINBASE_KEY = 'COINBASE_KEY'
-STOCKLOOK_EMAIL = 'STOCKLOOK_EMAIL'
+COINBASE_SECRET = 'COINBASE_SECRET'
+DATA_DIRECTORY = 'DATA_DIRECTORY'
+GDAX_KEY = 'GDAX_KEY'
+GDAX_SECRET = 'GDAX_SECRET'
+GMAIL_EMAIL = 'GMAIL_EMAIL'                                # Synonymous with STOCKLOOK_EMAIL
+LOG_LEVEL = 'LOG_LEVEL'                                    # Not env variable. uses DEFAULT_LOG_LVL.
+POLONIEX_KEY = 'POLONIEX_KEY'
+POLONIEX_SECRET = 'POLONIEX_SECRET'
+PYTZ_TIMEZONE = 'PYTZ_TIMEZONE'                            # Not env variable. uses DEFAULT_PYTZ_TIMEZONE.
+STOCKLOOK_EMAIL = 'STOCKLOOK_EMAIL'                        # Synonymous with GMAIL_EMAIL
 STOCKLOOK_NOTIFY_ADDRESS = 'STOCKLOOK_NOTIFY_ADDRESS'
+TWITTER_APP_KEY = 'STOCKLOOK_TWITTER_APP_KEY'
+TWITTER_APP_SECRET = 'STOCKLOOK_TWITTER_APP_SECRET'
+TWITTER_CLIENT_KEY = 'STOCKLOOK_TWITTER_CLIENT_KEY'
+TWITTER_CLIENT_SECRET = 'STOCKLOOK_TWITTER_CLIENT_SECRET'
+
+
 
 # GDAX_FEED_URL_KWARGS
 # Because SQLite couldn't hang.
@@ -52,25 +73,32 @@ The stocklook.utils.security.Credentials object uses this dictionary to
 retrieve/store usernames and API Keys while securely storing API secrets/passphrases
 and passwords in the encrypted facilities provided by the keyring package.
 """
-config = dict(GMAIL_EMAIL=env.get(STOCKLOOK_EMAIL, None),
-              STOCKLOOK_EMAIL=env.get(STOCKLOOK_EMAIL, None),
-              STOCKLOOK_NOTIFY_ADDRESS=env.get(STOCKLOOK_NOTIFY_ADDRESS, None),
-              DATA_DIRECTORY=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data'),
-              POLONIEX_KEY=env.get(POLONIEX_KEY, None),
-              COINBASE_KEY=env.get(COINBASE_KEY, None),
-              GDAX_KEY=env.get(GDAX_KEY, None),
-              GDAX_FEED_URL_KWARGS={
-                                    'drivername': "{}+{}".format(db_type, db_api),
-                                    'host': host or None,
-                                    'port': port or None,
-                                    'username': username or None,
-                                    'password': None,
-                                    'database': database or None
+config = {
+              GMAIL_EMAIL: env.get(STOCKLOOK_EMAIL, None),
+              STOCKLOOK_EMAIL: env.get(STOCKLOOK_EMAIL, None),
+              STOCKLOOK_NOTIFY_ADDRESS: env.get(STOCKLOOK_NOTIFY_ADDRESS, None),
+              TWITTER_APP_KEY: env.get(TWITTER_APP_KEY, None),
+              TWITTER_APP_SECRET: env.get(TWITTER_APP_SECRET, None),
+              TWITTER_CLIENT_KEY: env.get(TWITTER_CLIENT_KEY, None),
+              TWITTER_CLIENT_SECRET: env.get(TWITTER_CLIENT_SECRET, None),
+              DATA_DIRECTORY: DEFAULT_DATA_DIRECTORY,
+              POLONIEX_KEY: env.get(POLONIEX_KEY, None),
+              POLONIEX_SECRET: env.get(POLONIEX_SECRET, None),
+              COINBASE_KEY: env.get(COINBASE_KEY, None),
+              COINBASE_SECRET: env.get(COINBASE_SECRET, None),
+              GDAX_KEY: env.get(GDAX_KEY, None),
+              GDAX_SECRET: env.get(GDAX_SECRET, None),
+              'GDAX_FEED_URL_KWARGS': {
+                                    'drivername':  "{}+{}".format(db_type, db_api),
+                                    'host':  host or None,
+                                    'port':  port or None,
+                                    'username':  username or None,
+                                    'password':  None,
+                                    'database':  database or None
                                    },
-              LOG_LEVEL=DEFAULT_LOG_LVL,
-              PYTZ_TIMEZONE='US/Pacific',
-
-              )
+              LOG_LEVEL: DEFAULT_LOG_LVL,
+              PYTZ_TIMEZONE: DEFAULT_PYTZ_TIMEZONE,
+}
 
 
 def update_config(config_dict):
