@@ -3,6 +3,7 @@ from tweepy import OAuthHandler
 from tweepy import Stream
 import json
 import re
+from collections import Counter
 from stocklook.config import (TWITTER_APP_KEY,
                               TWITTER_APP_SECRET,
                               TWITTER_CLIENT_KEY,
@@ -18,6 +19,29 @@ consumer_secret = config.get(TWITTER_APP_SECRET, None)
 # Create an access token under the the "Your access token" section
 access_token = config.get(TWITTER_CLIENT_KEY, None)
 access_token_secret = config.get(TWITTER_CLIENT_SECRET, None)
+
+SPAM_COUNTER = Counter()
+TWEET_TARGET_RE = re.compile(r"(RT\s@|@)[A-Za-z0-9_\-]+(:\s|\s)", re.IGNORECASE)
+TWITTER_HANDLE_RE = re.compile(r'@[A-Za-z0-9_]+(\W|$|\b)', re.IGNORECASE)
+
+
+def twitter_split_initial_handle_from_txt(tweet):
+    match = TWEET_TARGET_RE.search(tweet)
+
+    if match is not None:
+        match = match.group()
+        tweet = tweet.replace(match, '')
+
+    return match, tweet
+
+
+def twitter_drop_handles_from_txt(tweet):
+    while True:
+        m = TWITTER_HANDLE_RE.search(tweet)
+        if m is None:
+            break
+        tweet = tweet.replace(m.group(), '')
+    return tweet
 
 
 class TwitterDatabaseListener(StreamListener):
@@ -71,10 +95,23 @@ class TwitterDatabaseListener(StreamListener):
 
     def on_data(self, data):
         data = json.loads(data)
-        txt = data['text']
-        if not self.SPAM_RE.search(txt):
-            print("{}\n{}\n\n".format(
-                data['created_at'], data['text']))
+        txt = twitter_drop_handles_from_txt(data['text'])
+        key = txt[:20]
+        counter = SPAM_COUNTER
+        counter[key] += 1
+
+        if not self.SPAM_RE.search(txt) and counter[key] <= 3:
+            print("{}\n{}\nkey: {}\n\n".format(
+                data['created_at'], data['text'], key))
+
+        if len(counter) > 10000:
+            print("Clearing counter...")
+            spam = {k: v for k, v in counter.items() if v > 3}
+            counter.clear()
+            if len(spam) < 10000:
+                print("Loading spam keys back into counter")
+                counter.update(spam)
+
         return True
 
     def on_error(self, status):

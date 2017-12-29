@@ -2,12 +2,16 @@ import io
 from pandas import Timestamp
 from stocklook.config import config
 import os
+
 try:
     import backtrader as bt
+
 except ImportError as e:
     import warnings
-    warnings.warn("backtrader package not found - download here: "
-                  "{}".format('https://github.com/mementum/backtrader'))
+    src_url = 'https://github.com/mementum/backtrader'
+    cmd = 'pip install {}/zipball/master'.format(src_url)
+    raise ImportError("backtrader package not found - install "
+                      "using the following command:\n\t{}".format(cmd))
 
 
 DATA_DIRECTORY = config['DATA_DIRECTORY']
@@ -29,14 +33,13 @@ class PoloniexDataFeed(bt.feeds.feed.CSVDataBase):
 
     def start(self):
         from pandas import DateOffset
-
         from stocklook.crypto.poloniex import (poloniex_return_chart_data,
                                                timestamp_to_utc,
                                                today)
 
         start = timestamp_to_utc(Timestamp(self.params.fromdate))
         end = timestamp_to_utc(Timestamp(self.p.todate))
-        period = self.p.period
+        period = self.params.period
 
         data = poloniex_return_chart_data(self.p.dataname,
                                           start_unix=start,
@@ -113,7 +116,11 @@ if __name__ == "__main__":
     cerebro = bt.Cerebro()
     cerebro.addstrategy(SmaCross)
 
-    data0 = PoloniexDataFeed(dataname='BTC_LTC', fromdate=start, todate=end, period=period)
+    data0 = PoloniexDataFeed(
+        dataname='BTC_LTC',
+        fromdate=start,
+        todate=end,
+        period=period)
     cerebro.adddata(data0)
 
     cerebro.run()
