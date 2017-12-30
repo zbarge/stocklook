@@ -55,6 +55,7 @@ TWITTER_CLIENT_SECRET = 'STOCKLOOK_TWITTER_CLIENT_SECRET'
 
 
 
+
 # GDAX_FEED_URL_KWARGS
 # Because SQLite couldn't hang.
 db_type = 'mysql'
@@ -129,7 +130,6 @@ def update_config(config_dict):
             pass
 
 
-# Default log level set here to INFO
 # When update_config method is called and if LOG_LEVEL is available
 # it will override this default.
 # Also probably subsequent calls to logging.basicCOnfig would override

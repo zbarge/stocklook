@@ -99,8 +99,10 @@ def btc_get_unconfirmed_tx_count():
     """
     return int(requests.get(BTC_UNCONFIRMED_TX_CT_URL).json())
 
+
 def btc_get_avg_block_time():
     return int(requests.get(BTC_AVG_BLOCK_TIME_URL).json())
+
 
 def btc_notify_on_block_height(block_no, to_address=None, times_to_ping=1):
     """
