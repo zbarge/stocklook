@@ -42,7 +42,11 @@ import os
 import json
 import requests
 import pandas as pd
+import logging as lg
 import requests_cache
+from time import sleep
+from datetime import datetime
+from threading import Thread
 from stocklook.config import config, DATA_DIRECTORY
 from stocklook.utils.database import (db_map_dict_to_alchemy_object,
                                       db_get_python_dtypes,
@@ -53,9 +57,16 @@ from sqlalchemy import (String, Boolean, DateTime, Float,
                         Integer, BigInteger, Column, ForeignKey, Table, Enum,
                         UniqueConstraint, TIMESTAMP, create_engine, func)
 
+logger = lg.getLogger(__name__)
+
 
 class CoinMCAPI(object):
-
+    """
+    Represents the API to coinmarketcap.com.
+    Two methods available:
+        CoinMCAPI.stats(): for overall market stats
+        CoinMCAPI.ticker(): for individual ticker info
+    """
     _session = None
     __DEFAULT_BASE_URL = 'https://api.coinmarketcap.com/v1/'
     __DEFAULT_TIMEOUT = 120
@@ -202,6 +213,7 @@ DB_COINMC_TABLE_DTYPE_MAP = {
     SQLCoinMCSnapshot.__tablename__: DB_COINMC_SNAPSHOT_DTYPES_ITEMS,
 }
 
+
 class CoinMCDatabase:
     def __init__(self, engine=None, api=None, session_maker=None):
         if api is None:
@@ -230,6 +242,12 @@ class CoinMCDatabase:
         return self._session_maker()
 
     def get_sql_object(self, obj, data_dict):
+        """
+        Parses CoinMC JSON into SQLAlchemy objects.
+        :param obj:
+        :param data_dict:
+        :return:
+        """
         data_dict = {COINMC_COLUMN_RENAME_MAP.get(k, k): v
                      for k, v in data_dict.items()}
         return db_map_dict_to_alchemy_object(
@@ -244,7 +262,14 @@ class CoinMCDatabase:
         return session.query(func.max(table_obj.last_updated)).first()
 
     def get_snapshots_frame(self, coin_symbols=None):
-        df = pd.read_sql("SELECT * FROM {}".format(SQLCoinMCSnapshot.__tablename__),
+        """
+        Returns a pandas.DataFrame of SQLCoinMCSnapshot table data
+        :param coin_symbols: (list, default None)
+            An optional list of coin symbols to filter.
+        :return:
+        """
+        df = pd.read_sql("SELECT * FROM {}".format(
+                          SQLCoinMCSnapshot.__tablename__),
                          self.engine,
                          coerce_float=False, )
         if coin_symbols:
@@ -253,6 +278,13 @@ class CoinMCDatabase:
         return df
 
     def sync_data(self, session):
+        """
+        Main method queries stats and tickers
+        from coinmarketcap API, parses data, and loads
+        the database with results.
+        :param session:
+        :return:
+        """
         stats = self.api.stats()
         stats_obj = self.get_sql_object(SQLCoinMCStat, stats)
 
@@ -260,20 +292,36 @@ class CoinMCDatabase:
         ticker_objs = [self.get_sql_object(SQLCoinMCSnapshot, t)
                        for t in tickers]
 
-        session.add_all(ticker_objs + [stats_obj])
+        data = ticker_objs + [stats_obj]
+        session.add_all(data)
         session.commit()
 
         return stats_obj, ticker_objs
 
 
+class CoinMCSyncThread(Thread):
+    """
+    Synchronizes CoinMC database
+    on a separate thread on an interval.
+    """
+    def __init__(self, interval=60*60*4, **db_kwargs):
+        Thread.__init__(self)
+        self.db = CoinMCDatabase(**db_kwargs)
+        self.interval = interval
+        self.stop = False
+
+    def run(self):
+        while not self.stop:
+            session = self.db.get_session()
+            self.db.sync_data(session)
+            session.close()
+            logger.debug("{}: CoinMC database sync "
+                         "complete.".format(datetime.now()))
+            sleep(self.interval)
+
 
 
 if __name__ == '__main__':
-    db = CoinMCDatabase()
-    session = db.get_session()
-    stats, ticks = db.sync_data(session)
-
-    print(stats)
-    for t in ticks:
-        print(t)
+    t = CoinMCSyncThread()
+    t.start()
     
