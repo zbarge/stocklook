@@ -1,7 +1,8 @@
 stocklook
 =========
 
-A collection of utilities for to cryptocurrency APIs.
+A collection of utilities for working with cryptocurrency APIs.
+
 Goal: Painless automated spread and target trading, account management, and data analysis.
 
 APIs:
