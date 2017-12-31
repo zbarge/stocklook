@@ -59,3 +59,5 @@ def call_api(url, method='get', _api_exception_cls=None, **kwargs):
         raise _api_exception_cls(msg)
 
     return res
+
+
