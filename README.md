@@ -1,16 +1,19 @@
 stocklook
 =========
 
-Cryptocurrency exchange analysis & automated trading on Gdax (for now).
-
-Goal: Painless automated spread and target trading.
+A collection of utilities for to cryptocurrency APIs.
+Goal: Painless automated spread and target trading, account management, and data analysis.
 
 APIs:
 ---------
 
-- Coinbase: light wrapper around coinbase client
-- Gdax: custom API/database wrapper for managing account/trading and price history
-- Poloniex: custom API/wrapper for getting price history.
+- blockchain.io (stocklook.crypto.bitcoin): BTC blockchain stats
+- blockcypher.com (stocklook.crypto.etherium): ETH blockchain stats
+- CoinBase (stocklook.crypto.coinbase_api): account management, buy/sell
+- CoinMarketCap (stocklook.crypto.coinmarketcap): price history, market stats
+- Gdax (stocklook.crypto.gdax):  trading, account management, price history
+- Poloniex (stocklook.crypto.poloniex): price history
+- Twitter (stocklook.apis.twitah): tweet scanning
 - Yahoo Finance (broken)
 
 Examples
