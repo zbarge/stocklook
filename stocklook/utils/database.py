@@ -37,15 +37,20 @@ PY_TYPE_TO_SQL_ALCHEMY_LABEL_MAP = {
 }
 
 
-def db_describe_dict(data):
+def db_describe_dict(data, table_name=None):
     """
     Helper function prints sqlalchemy table definitions
     using dictionary key and value pairs.
     :param data:
     :return:
     """
+    if table_name is None:
+        table_name = "Table1"
+
     m = PY_TYPE_TO_SQL_ALCHEMY_LABEL_MAP
     others = list()
+
+    print("__tablename__ = '{}'".format(table_name))
     for k, v in sorted(data.items()):
         if isinstance(v, dict):
             others.append((k, v))
@@ -55,6 +60,7 @@ def db_describe_dict(data):
     for k, v in others:
         print("\n\n__tablename__ = '{}'\n".format(k))
         db_describe_dict(v)
+    print("\n\n")
 
 
 def db_get_python_dtypes(sql_table, date_type=None, include_str=False):
