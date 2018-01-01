@@ -35,8 +35,8 @@ def test_set_object_vars():
     o2 = TestObj()
     o2.username = 'user1'
     c.configure_object_vars(o2, svc_name, 'username', ['password', 'secret'])
-    assert o.password == 'pw1'
-    assert o.secret == 'secret1'
+    assert o2.password == 'pw1'
+    assert o2.secret == 'secret1'
 
     keyring.delete_password(svc_name, 'user1')
 
