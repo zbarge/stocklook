@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import keyring
-
+from warnings import warn
 
 class Credentials:
     GDAX = 'gdax'
@@ -33,6 +33,7 @@ class Credentials:
     KRAKEN = 'kraken'
     GDAX_DB = 'gdax_db'
     SERVICE_NAMES = [GDAX, POLONIEX, GMAIL, BFX, KRAKEN]
+    CONFIG_TO_OBJECT_MAP = dict()
 
     # Used to store multiple variables
     # under one key in KeyRing
@@ -48,6 +49,16 @@ class Credentials:
                 data = dict()
         self.data = data
         self.allow_input = allow_input
+
+    def _join_password_items(self, pw_items):
+        if not pw_items:
+            return pw_items
+        return self.JOIN_SEP.join(pw_items)
+
+    def _split_password_string(self, pw_string):
+        if not pw_string or self.JOIN_SEP not in pw_string:
+            return pw_string
+        return pw_string.split(self.JOIN_SEP)
 
     def set_with_input(self, service_name, user=None, api=False):
         """
@@ -73,7 +84,8 @@ class Credentials:
             user = input("API Key:").strip()
         secret = input("API Secret:").strip()
         phrase = input("API Passphrase:").strip()
-        self.set_api(service_name, user, secret, phrase)
+        self.set(service_name, user,
+                 self._join_password_items([secret, phrase]))
         return user
 
     def get(self, service_name, username=None, api=False):
@@ -114,6 +126,11 @@ class Credentials:
             self.data[service_name] = username
             return self.get(service_name, username, api)
 
+    @staticmethod
+    def register_config_object_mapping(service_name, map_data):
+        map_data.update({v: k for k, v in map_data.items()})
+        Credentials.CONFIG_TO_OBJECT_MAP.update({service_name: map_data})
+
     def set(self, service_name, username, password):
         """
         Sets a password securely under the username.
@@ -125,27 +142,110 @@ class Credentials:
         keyring.set_password(service_name, username, password)
         self.data[service_name] = username
 
-    def set_api(self, service_name, key, secret, passphrase):
+    def get_config_value(self, service_name, key_name):
         """
-        Stores api_secret and api_passphrase securely under the key.
-        :param service_name:
-        :param key:
-        :param secret:
-        :param passphrase:
-        :return:
-        """
-        pw = secret + self.JOIN_SEP + passphrase
-        self.set(service_name, key, pw)
+        Tries returning a raw value from config in the following order:
+        1) return a value stored in Credentials.data matching :param key
+        2) return a value stored in Credentials.data matching :param key translated via
+           Credentials.CONFIG_TO_OBJECT_MAP.
 
-    def get_api(self, service_name, key=None):
-        """
-        Returns api_secret, api_passphrase from secure storage.
+        Retrieving values in this way ensures that we are
+        searching all available ways the value
+        could/should be stored for the stocklook app.
+
         :param service_name:
         :param key:
         :return:
         """
-        pw = self.get(service_name, username=key, api=True)
-        return pw.split(self.JOIN_SEP)
+
+        try:
+            return self.data[key_name]
+        except KeyError:
+            pass
+
+        try:
+            key_map = self.CONFIG_TO_OBJECT_MAP[service_name]
+            key_label = key_map[key_name]
+            return self.data[key_label]
+        except KeyError:
+            pass
+
+    def configure_object_vars(self, dest_obj, service_name, key_name, secret_items):
+        """
+        Configures an object's username and multiple secret
+        items using stocklook.config.config and KeyRing.
+
+        Manual user input may be required but secret items will be joined and registered to
+        KeyRing. Usernames manually inputted are lost.
+
+        :param dest_obj: (object)
+            An initialized class object with secret variables to set.
+
+        :param service_name: (str)
+            The service name for KeyRing.
+
+        :param key_name: (str)
+            The username or API key variable name for the :param dest_obj
+
+        :param secret_items: (list)
+            A list of one or more secret variable names to assign secret values to.
+
+        :return:
+        """
+        key_value = getattr(dest_obj, key_name)
+
+        if not hasattr(secret_items, '__iter__'):
+            secret_items = [secret_items]
+
+        # Get/assign object's username
+        if key_value is None:
+            key_value = self.get_config_value(service_name, key_name)
+            if key_value is None:
+                key_value = input("Enter {} username/key:".format(
+                    service_name)).strip()
+                warn("To avoid manual key input multiple "
+                     "times please update stocklook.config.config with "
+                     "{}".format(self.CONFIG_TO_OBJECT_MAP[key_name]))
+            setattr(dest_obj, key_name, key_value)
+
+        # Set missing secrets via config.
+        for s in secret_items:
+            if getattr(dest_obj, s, None)is None:
+                v = self.get_config_value(service_name, s)
+                setattr(dest_obj, s, v)
+
+        # Check for missing secrets
+        secrets_avail = {
+            s: getattr(dest_obj, s, None)
+            for s in secret_items}
+
+        if not all(secrets_avail.values()):
+            # Set missing secrets from KeyRing
+            v = keyring.get_password(service_name, key_value)
+            sets_needed = True
+            if v is not None:
+                secret_vals = self._split_password_string(v)
+                if len(secret_vals) == len(secret_items):
+
+                    for k, v in zip(secret_items, secret_vals):
+                        setattr(dest_obj, k, v)
+                    sets_needed = False
+
+            if sets_needed:
+                # Set missing values to KeyRing (& object) from user input.
+                secrets_avail = {k: (v if v is not None
+                                     else input("Enter {} {}:".format(
+                                                service_name, k)).strip())
+                                 for k, v in secrets_avail.items() }
+                pw_string = self._join_password_items(
+                    [secrets_avail[i] for i in secret_items])
+                self.set(service_name, key_value, pw_string)
+                [setattr(dest_obj, k, secrets_avail[k]) for k in secret_items]
+        else:
+            # Log secret values to KeyRing
+            pw_string = self._join_password_items(
+                [secrets_avail[i] for i in secret_items])
+            self.set(service_name, key_value, pw_string)
 
     def reset_credentials(self, service_name, username, new_pass=None, api_pass=None):
         try:

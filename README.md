@@ -15,7 +15,7 @@ APIs:
 - Gdax (stocklook.crypto.gdax):  trading, account management, price history
 - Poloniex (stocklook.crypto.poloniex): price history
 - Twitter (stocklook.apis.twitah): tweet scanning
-- Yahoo Finance (broken)
+- Yahoo Finance (broken): price history
 
 Examples
 --------
@@ -43,7 +43,7 @@ Accessing Gdax to buy some coin:
     g = Gdax()
     g.deposit_from_coinbase('USD', 100)
 
-    o = GdaxOrder('LTC-USD', order_type='market', amount=100)
+    o = GdaxOrder(g, 'LTC-USD', order_type='market', amount=100)
     o.post()
 
 Market making spreads on Gdax:

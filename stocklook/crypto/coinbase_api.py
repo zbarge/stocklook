@@ -23,6 +23,8 @@ SOFTWARE.
 """
 
 from warnings import warn
+from stocklook.config import COINBASE_KEY, COINBASE_SECRET
+from stocklook.utils.security import Credentials
 from coinbase.wallet.client import Client as CBClient, Withdrawal
 import json
 
@@ -32,26 +34,26 @@ class CoinbaseClient(CBClient):
     Subclass coinbase.wallet.client with support for
     credentials from config + a few convenience methods.
     """
+    Credentials.register_config_object_mapping(
+        Credentials.COINBASE,
+        {
+            COINBASE_KEY: 'api_key',
+            COINBASE_SECRET: 'api_secret',
+        })
+
     def __init__(self,
                  api_key=None,
                  api_secret=None,
                  base_api_uri=None,
                  api_version=None):
-
+        self.api_key = None
+        self.api_secret = None
         if not all((api_key, api_secret)):
             from stocklook.utils.security import Credentials
             creds = Credentials(allow_input=True)
-            if api_key is None:
-                try:
-                    api_key = creds.data['COINBASE_KEY']
-                except KeyError:
-                    warn("Set dict(stocklook.config.config) with "
-                         "COINBASE_KEY to avoid inputting it manually.")
-
-            # This will be input manually if not available.
-            api_secret = creds.get(creds.COINBASE, username=api_key, api=False)
-            if api_key is None:
-                api_key = creds.data[creds.COINBASE]
+            creds.configure_object_vars(
+                self, creds.COINBASE,
+                'api_key', ['api_secret'])
 
         CBClient.__init__(self,
                           api_key=api_key,

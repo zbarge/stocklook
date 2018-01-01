@@ -30,6 +30,8 @@ import json
 import time
 import hmac, hashlib
 import urllib.request as urllib2
+from stocklook.config import config, POLONIEX_SECRET, POLONIEX_KEY
+from stocklook.utils.security import Credentials
 from stocklook.utils.timetools import (timestamp_from_utc,
                                        timestamp_to_utc_int as timestamp_to_utc,
                                        create_timestamp, today, one_week_ago)
@@ -59,7 +61,7 @@ USDT_BTC = 'USDT_BTC'
 USDT_ETH = 'USDT_ETH'
 USDT_LTC = 'USDT_LTC'
 
-# Field names from poloniex_return_chart_data()
+# Field names from polo_return_chart_data()
 QUOTE_VOLUME = 'quoteVolume'
 WEIGHTED_AVG = 'weightedAverage'
 CLOSE = 'close'
@@ -76,12 +78,12 @@ FOUR_HOURS = 60 * 60 * 4
 ONE_DAY = 60 * 60 * 24
 
 
-def poloniex_return_chart_data(currency_pair,
-                               start_unix=None,
-                               end_unix=None,
-                               period_unix=14400,
-                               format_dates=True,
-                               to_frame=True):
+def polo_return_chart_data(currency_pair,
+                           start_unix=None,
+                           end_unix=None,
+                           period_unix=14400,
+                           format_dates=True,
+                           to_frame=True):
     """
     Returns public exchange data for the given
     currency_pair between the start_unix and end_unix
@@ -138,9 +140,19 @@ def poloniex_return_chart_data(currency_pair,
 
 
 class Poloniex:
-    def __init__(self, key, secret):
+    Credentials.register_config_object_mapping(
+        Credentials.POLONIEX, {
+        POLONIEX_KEY: 'api_key',
+        POLONIEX_SECRET: 'secret'}
+    )
+
+    def __init__(self, key=None, secret=None):
         self.api_key = key
         self.secret = secret
+        if not all((key, secret)):
+            c = Credentials()
+            c.configure_object_vars(
+                self, c.POLONIEX, 'api_key', ['secret'])
 
     def post_process(self, before):
         after = before
@@ -430,9 +442,9 @@ class PoloCurrencyPair:
         self.chart = self.get_days_chart_data()
 
     def get_days_chart_data(self):
-        return poloniex_return_chart_data(self.cur_pair,
-                                          start_unix=timestamp_to_utc(today()),
-                                          period_unix=FIVE_MINUTE)
+        return polo_return_chart_data(self.cur_pair,
+                                      start_unix=timestamp_to_utc(today()),
+                                      period_unix=FIVE_MINUTE)
 
     def get_price_change(self, df=None):
         if df is None:
@@ -444,10 +456,10 @@ class PoloCurrencyPair:
     def find_last_support(self, price=None):
         if price is None:
             price = self.last
-        df = poloniex_return_chart_data(self.cur_pair,
-                                        start_unix=timestamp_to_utc(one_week_ago()),
-                                        end_unix=timestamp_to_utc(datetime.now() - pd.DateOffset(hours=2)),
-                                        period_unix=FIVE_MINUTE)
+        df = polo_return_chart_data(self.cur_pair,
+                                    start_unix=timestamp_to_utc(one_week_ago()),
+                                    end_unix=timestamp_to_utc(datetime.now() - pd.DateOffset(hours=2)),
+                                    period_unix=FIVE_MINUTE)
         df = df.loc[df['close'] <= price, :]
         return df.iloc[-1]
 
@@ -457,7 +469,7 @@ class PoloCurrencyPair:
 
 
 if __name__ == '__main__':
-    #res = poloniex_return_chart_data(USDT_BTC)
+    #res = polo_return_chart_data(USDT_BTC)
     #print(res.head(10))
     import os
     key = None

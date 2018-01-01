@@ -29,6 +29,8 @@ import hmac, hashlib, time, requests, base64, json
 from requests.auth import AuthBase
 from stocklook.utils import rate_limited
 from stocklook.utils.api import call_api
+from stocklook.utils.security import Credentials
+from stocklook.config import config, GDAX_SECRET, GDAX_KEY, GDAX_PASSPHRASE
 from stocklook.utils.timetools import timestamp_to_iso8601, timestamp_from_utc, timeout_check
 from .account import GdaxAccount
 from .product import GdaxProduct, GdaxProducts
@@ -115,6 +117,13 @@ class Gdax:
     """
     API_URL = 'https://api.gdax.com/'
     API_URL_TESTING = 'https://public.sandbox.gdax.com'
+    Credentials.register_config_object_mapping(
+        Credentials.GDAX,
+            {
+            GDAX_KEY: 'api_key',
+            GDAX_SECRET: 'api_secret',
+            GDAX_PASSPHRASE: 'api_passphrase'
+        })
 
     def __init__(self, key=None, secret=None, passphrase=None, wallet_auth=None, coinbase_client=None):
         """
@@ -172,28 +181,10 @@ class Gdax:
         Sets gdax credentials via secure keyring storage.
         :return:
         """
-        from stocklook.utils.security import Credentials
-        key = self.api_key
-        creds = Credentials(allow_input=True)
-
-        # Check GDAX_KEY in config
-        if key is None:
-            try:
-                key = creds.data['GDAX_KEY']
-            except KeyError:
-                warn("Set dict(stocklook.config.config) with "
-                     "GDAX_KEY to avoid inputting it manually.")
-
-        # This will be input manually if not available.
-        secret, phrase = creds.get_api(creds.GDAX, key=key)
-
-        if key is None:
-            # Well now the key will be made available.
-            key = creds.data[creds.GDAX]
-
-        self.api_key = key
-        self.api_secret = secret
-        self.api_passphrase = phrase
+        c = Credentials()
+        c.configure_object_vars(
+            self, c.GDAX, 'api_key',
+            ['api_secret', 'api_passphrase'])
 
     def set_testing_url(self):
         """

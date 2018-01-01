@@ -40,6 +40,7 @@ COINBASE_KEY = 'COINBASE_KEY'
 COINBASE_SECRET = 'COINBASE_SECRET'
 DATA_DIRECTORY = 'DATA_DIRECTORY'
 GDAX_KEY = 'GDAX_KEY'
+GDAX_PASSPHRASE = 'GDAX_PASSPHRASE'
 GDAX_SECRET = 'GDAX_SECRET'
 GMAIL_EMAIL = 'GMAIL_EMAIL'                                # Synonymous with STOCKLOOK_EMAIL
 LOG_LEVEL = 'LOG_LEVEL'                                    # Not env variable. uses DEFAULT_LOG_LVL.
@@ -89,6 +90,7 @@ config = {
               COINBASE_SECRET: env.get(COINBASE_SECRET, None),
               GDAX_KEY: env.get(GDAX_KEY, None),
               GDAX_SECRET: env.get(GDAX_SECRET, None),
+              GDAX_PASSPHRASE: env.get(GDAX_PASSPHRASE, None),
               'GDAX_FEED_URL_KWARGS': {
                                     'drivername':  "{}+{}".format(db_type, db_api),
                                     'host':  host or None,

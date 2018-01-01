@@ -320,6 +320,87 @@ class CoinMCSyncThread(Thread):
             sleep(self.interval)
 
 
+def coinmc_report_on_snaps(df, to_path):
+    """
+    Generates a report from coins stored in the database.
+    The report contains the following:
+        symbol: The coin symbol (e.g. BTC)
+        days: # of days between stats compared
+
+        stats:
+        market_cap_usd: The market cap
+        rank: The rank on coinmarketcap
+        price_usd: The USD value of the coin
+
+    stats also get additional columns/data:
+        _first: the first value (oldest)
+        _last: the last value (newest)
+        _diff: newest - oldest value
+        _pct_diff: percent change of _diff
+
+    :param df:
+    :param to_path:
+    :return:
+    """
+    coins, stats = list(), list()
+    T = SQLCoinMCSnapshot
+    m_cap = T.market_cap_usd.name
+    rank = T.rank.name
+    price = T.price_usd.name
+    symbol = T.symbol.name
+    last_updated = T.last_updated.name
+    stats_cols = [m_cap, rank, price]
+    df.sort_values(
+        [last_updated],
+        ascending=[True],
+        inplace=True)
+
+    # Make individual DataFrames for each coin
+    for s in df[symbol].unique():
+        coins.append(
+            df.loc[df[symbol].isin([s]), :])
+
+    # Reporting dataframe columns
+    stats_labels = [symbol, 'days']
+    [stats_labels.extend(
+        ['{}_first'.format(c),
+         '{}_last'.format(c),
+         '{}_diff'.format(c),
+         '{}_pct_diff'.format(c)])
+     for c in stats_cols]
+
+    # Calculate differences on each coin
+    for coin in coins:
+        first = coin.iloc[0]
+        last = coin.iloc[-1]
+        secs = last[last_updated] - first[last_updated]
+        days = round(secs/60/60/24, 2)
+        row = [first[symbol], days]
+
+        for c in stats_cols:
+            diff = round(last[c] - first[c],4)
+            pct_change = round(diff/first[c], 4)
+            row.extend((first[c], last[c], diff, pct_change))
+        stats.append(row)
+
+    # Compose & export calculated stats
+    df_stats = pd.DataFrame(
+        data=stats, columns=stats_labels)
+    df_stats.sort_values(
+        [rank + '_diff'],
+        ascending=[True],
+        inplace=True)
+    df_stats.to_csv(to_path)
+
+    return df_stats
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     t = CoinMCSyncThread()
