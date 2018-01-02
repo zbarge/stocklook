@@ -42,7 +42,11 @@ def eth_get_chain_stats():
     'last_fork_height': 4825453,
     'medium_gas_price': 20000000000}
     """
-    return requests.get(ETH_CHAIN_STATS_URL).json()
+    try:
+        return requests.get(ETH_CHAIN_STATS_URL).json()
+    except requests.exceptions.ConnectionError:
+        sleep(1)
+        return eth_get_chain_stats()
 
 
 def eth_notify_on_block_height(block_no, to_address=None, times_to_ping=1):

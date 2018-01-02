@@ -33,7 +33,7 @@ class PoloniexDataFeed(bt.feeds.feed.CSVDataBase):
 
     def start(self):
         from pandas import DateOffset
-        from stocklook.crypto.poloniex import (poloniex_return_chart_data,
+        from stocklook.crypto.poloniex import (polo_return_chart_data,
                                                timestamp_to_utc,
                                                today)
 
@@ -41,7 +41,7 @@ class PoloniexDataFeed(bt.feeds.feed.CSVDataBase):
         end = timestamp_to_utc(Timestamp(self.p.todate))
         period = self.params.period
 
-        data = poloniex_return_chart_data(self.p.dataname,
+        data = polo_return_chart_data(self.p.dataname,
                                           start_unix=start,
                                           end_unix=end,
                                           period_unix=period,

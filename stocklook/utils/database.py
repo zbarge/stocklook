@@ -21,8 +21,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-
+import os
 from threading import Thread
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 from stocklook.utils.timetools import timestamp_to_local
 from queue import Empty
 import logging as lg
@@ -129,18 +132,17 @@ def db_map_dict_to_alchemy_object(d, sql_object, dtype_items=None, raise_on_erro
                 d[c] = None
 
     # Set attributes
-    e = sql_object()
+    obj = sql_object()
     for k, v in d.items():
         try:
-            setattr(e, k, v)
-        except AttributeError as e:
+            setattr(obj, k, v)
+        except AttributeError:
             msg = "SQL object {} missing: " \
                   "{}".format(sql_object, k)
             if raise_on_error:
                 raise KeyError(msg)
-            logger.error(msg)
 
-    return e
+    return obj
 
 
 class DatabaseLoadingThread(Thread):
@@ -282,3 +284,32 @@ class DatabaseLoadingThread(Thread):
         session.close()
 
         return msg
+
+
+class AlchemyDatabase:
+    def __init__(self, engine=None, session_maker=None, declarative_base=None):
+        self._engine = engine
+        self._session_maker = session_maker
+        self._declarative_base = declarative_base
+
+    @property
+    def engine(self):
+        """
+        SQLAlchemy engine defaults to classname.sqlite3
+        in the directory found in stocklook.config.config['DATA_DIRECTORY']
+        :return:
+        """
+        if self._engine is None:
+            from stocklook.config import config, DATA_DIRECTORY
+            db_name = '{}.sqlite3'.format(self.__class__.__name__.lower())
+            db_path = 'sqlite:///' + os.path.join(
+                config[DATA_DIRECTORY], db_name)
+            self._engine = create_engine(db_path)
+            if self._declarative_base is not None:
+                self._declarative_base.metadata.create_all(bind=self._engine)
+        return self._engine
+
+    def get_session(self):
+        if self._session_maker is None:
+            self._session_maker = sessionmaker(bind=self.engine)
+        return self._session_maker()

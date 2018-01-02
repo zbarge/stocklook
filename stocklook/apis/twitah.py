@@ -21,9 +21,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-import os
 import re
 import json
+import logging as lg
 from collections import Counter
 from tweepy import Stream, OAuthHandler
 from tweepy.streaming import StreamListener
@@ -35,13 +35,13 @@ from stocklook.config import (TWITTER_APP_KEY,
                               config)
 from stocklook.utils.database import (db_map_dict_to_alchemy_object,
                                       db_get_python_dtypes,
-                                      db_describe_dict)
+                                      db_describe_dict, AlchemyDatabase)
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (String, Boolean, DateTime, Float,
                         Integer, BigInteger, Column, ForeignKey, Table, Enum,
                         UniqueConstraint, TIMESTAMP, create_engine)
-
+logger = lg.getLogger(__name__)
 
 # Go to http://apps.twitter.com and create an app.
 # The consumer key and secret will be generated for you after
@@ -177,6 +177,7 @@ class SQLTwitterUser(SQLTwitterBase):
     Stores data about a twitter user.
     """
     __tablename__ = 'twitter_users'
+
     user_id = Column(Integer, primary_key=True)
     tweets = relationship('SQLTweet', back_populates='user')
 
@@ -229,7 +230,7 @@ class SQLTweet(SQLTwitterBase):
     __tablename__ = 'twitter_tweets'
 
     tweet_id = Column(Integer, primary_key=True)
-    user = relationship('SQLTwitterUser')
+    user = relationship('SQLTwitterUser', back_populates='tweets')
     user_id = Column(Integer, ForeignKey('twitter_users.user_id'))
 
     # Generated via describe_json_object
@@ -270,7 +271,7 @@ DB_TWITTER_USER_DTYPES_ITEMS = DB_TWITTER_USER_DTYPES.items()
 DB_TWITTER_USER_CACHE = dict()
 
 
-class TwitterDatabaseListener(StreamListener):
+class TwitterDatabaseListener(StreamListener, AlchemyDatabase):
     """
     Streams tweets to a SQLAlchemy database.
     """
@@ -279,26 +280,14 @@ class TwitterDatabaseListener(StreamListener):
             stream_options = dict()
 
         StreamListener.__init__(self, api=api)
+        AlchemyDatabase.__init__(
+            self, engine=engine,
+            session_maker=session_maker,
+            declarative_base=SQLTwitterBase)
         self._auth = None
         self._stream = None
         self._stream_options = stream_options
-        self._engine = engine
-        self._session_maker = session_maker
         self.session = self.get_session()
-
-    @property
-    def engine(self):
-        """
-        SQLAlchemy engine defaults to twitter.sqlite3
-        in the directory found in stocklook.config.config['DATA_DIRECTORY']
-        :return:
-        """
-        if self._engine is None:
-            db_path = 'sqlite:///' + os.path.join(
-                config[DATA_DIRECTORY], 'twitter.sqlite3')
-            self._engine = create_engine(db_path)
-            SQLTwitterBase.metadata.create_all(bind=self._engine)
-        return self._engine
 
     @property
     def auth(self):
@@ -314,7 +303,7 @@ class TwitterDatabaseListener(StreamListener):
                 raise KeyError("Unable to authorize twitter "
                                "as there is a missing token. "
                                "Please make sure the following "
-                               "environmental variables are set:\n\t"
+                               "environment variables are set:\n\t"
                                "1) {}: {}\n\t"
                                "2) {}: {}\n\t"
                                "3) {}: {}\n\t"
@@ -326,14 +315,6 @@ class TwitterDatabaseListener(StreamListener):
             self._auth = OAuthHandler(consumer_key, consumer_secret)
             self._auth.set_access_token(access_token, access_token_secret)
         return self._auth
-
-    def get_session(self):
-        # Used once on init to generate session...
-        # not sure how often a session needs to be refreshed but
-        # will update to use more often if needed.
-        if self._session_maker is None:
-            self._session_maker = sessionmaker(bind=self.engine)
-        return self._session_maker()
 
     def get_user_sql_object(self, user_data):
         """
@@ -385,8 +366,14 @@ class TwitterDatabaseListener(StreamListener):
         tweet = db_map_dict_to_alchemy_object(
             data, SQLTweet,
             dtype_items=DB_TWEET_DTYPES_ITEMS)
-        user.tweets.append(tweet)
-        self.session.commit()
+
+        try:
+            user.tweets.append(tweet)
+        except AttributeError as e:
+            logger.error(e)
+            self.session.rollback()
+        else:
+            self.session.commit()
 
         return user, tweet
 
