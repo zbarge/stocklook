@@ -21,10 +21,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-
+from numpy import nan
 from pandas import Timestamp
 import xml.etree.cElementTree as ET
-
 
 
 STRINGS_TO_DTYPE = {'str': str,
@@ -35,11 +34,18 @@ STRINGS_TO_DTYPE = {'str': str,
                     'int': int,
                     'bool': bool
                     }
-STRINGS_TO_DTYPE.update({v: v for v in STRINGS_TO_DTYPE.values()})
-
+STRINGS_TO_DTYPE.update(
+    {v: v for v in STRINGS_TO_DTYPE.values()})
+DOLLAR_CONVERSION_MAP = {'M': 1000000,
+                         'B': 1000000000,}
 NULLS = ['NA', None, 'None', 'null']
 
-STRINGS_TO_FALSE = ['no', 'false', 'null', '', 'none', 'na', 'nan', 'nat', '0']
+STRINGS_TO_FALSE = ['no', 'false',
+                    'null', '',
+                    'none', 'na',
+                    'nan', 'nat',
+                    '0', '0.0',
+                    nan, 'n/a']
 
 
 def camel_case_to_under_score(x):
@@ -66,18 +72,46 @@ def camel_case_to_under_score(x):
 
 
 def format_dollar_letter_conversions(value):
+    """
+    Converts a string to float even if it contains illegal characters.
+
+    Conversions:
+    ------------
+
+        '100M' --> 1000000000.00: 100 million
+        '1B' --> 1000000000.00: 1 billion
+        '$5.99' --> 5.99
+        '4' --> 4.0
+        '4.0' --> 4.0
+        4.0 --> 4.0
+        4 --> 4.0
+
+    Note: Only the above conversions happen. strings suffixed
+    with other characters will be removed and the float value
+    will be returned.
+
+    :param value: (str, int, float)
+        The value to convert
+
+    :return: (float)
+        The float result.
+        0 if it cannot be converted.
+    """
     try:
-        value = str(value)
-        bit = value[-1].upper()
+        value = str(value).strip()
+        first = value[0]
+        last = value[-1].upper()
 
-        if not bit.isdigit():
-            value = value.replace(bit, '').lstrip().rstrip()
+        # Trim $ or anything non numeric off front
+        if not first.isnumeric():
+            value = value.replace(first, '').strip()
 
-            if bit == 'M':
-                value = float(value) * 1000000
-            elif bit == 'B':
-                value = float(value) * 1000000000
-
+        if not last.isdigit():
+            value = value.replace(last, '').strip()
+            try:
+                value = float(value) * DOLLAR_CONVERSION_MAP[last]
+            except KeyError:
+                pass
         return float(value)
     except ValueError:
         return float(0)
@@ -91,7 +125,9 @@ def raw_string(x):
 
 
 def ensure_float(x):
-    x = format_dollar_letter_conversions(str(x).replace('%', '').lstrip().rstrip())
+    # Returns a float or 0
+    x = format_dollar_letter_conversions(
+        str(x).replace('%', '').lstrip().rstrip())
     try:
         return float(x)
     except:
@@ -99,6 +135,7 @@ def ensure_float(x):
 
 
 def ensure_int(x):
+    # Returns an int or 0
     x = format_dollar_letter_conversions(str(x)
                                          .replace('%', '')
                                          .replace('$', '')
@@ -111,27 +148,53 @@ def ensure_int(x):
 
 
 def ensure_string(x):
-    try:
-        return str(x)
-    except:
-        return ''
+    # Returns a string
+    if x:
+        try:
+            return str(x)
+        except:
+            return ''
+    return ''
 
 
 def ensure_bool(x):
+    """
+    Returns True or False
+    Uses stocklook.utils.formatters.STRINGS_TO_FALSE
+    list to look up the value and determine False should be returned.
+    :param x: (str, any)
+        The value to evaluate for True or False.
+
+    :return: (bool)
+        False if possible else True.
+    """
+
     x = str(x).lower().lstrip().rstrip()
     if x in STRINGS_TO_FALSE:
         return False
     return True
 
 
+DEFAULT_TIMESTAMP = Timestamp('1900-01-01')
+
+
 def ensure_datetime(x):
+    """
+    :param x: (str, datetime)
+        A value to evaluate for datetime.
+
+    :return: (pandas.Timestamp)
+        A Timestamp object.
+        If it can't be converted
+        Timestamp('1900-01-01') is returned.
+    """
     try:
         t = Timestamp(x)
         if 'NaT' in str(t):
-            return Timestamp('1900-01-01')
+            return DEFAULT_TIMESTAMP
         return t
     except:
-        return Timestamp('1900-01-01')
+        return DEFAULT_TIMESTAMP
 
 
 DTYPE_CONVERTERS = {str: ensure_string,
@@ -146,57 +209,6 @@ RENAME = 'RENAME'
 DTYPE = 'DTYPE'
 FIELDS = 'FIELDS'
 INCLUDE = 'INCLUDE'
-
-
-def generate_config(module, renames, dtypes):
-    """
-    Returns a dictionary of
-    {module:{FIELDS:{field:{RENAME:renames[field], DTYPE:dtypes[field], INCLUDE:True/False}
-                                }}}
-    module: (str) - name of module
-
-    """
-    fields = {}
-    for field, newfield in renames.items():
-        dtype = dtypes.get(field, None)
-        if dtype is None or newfield in NULLS:
-            include = False
-            dtype = str
-        else:
-            include = True
-        data = {field: {RENAME: newfield, DTYPE: raw_string(dtype), INCLUDE: include}}
-        fields.update(data)
-    return {module: {FIELDS: fields}}
-
-
-def parse_config(config):
-    """
-    Parses a Zoho field configuration map.
-    Checks for presence of required keys to make
-    the program work and raises an error if any.
-    converts string dtypes to python dtypes.
-    """
-    config = config.copy()
-    for module, data in config.items():
-        fields = data.get(FIELDS, None)
-        assert fields is not None, "Expected a {} dictionary, got None".format(FIELDS)
-        for field, info in fields.items():
-            try:
-                rename = info[RENAME]
-                dtype = info[DTYPE]
-                include = info[INCLUDE]
-            except KeyError as e:
-                raise KeyError("Field '{}' missing required key '{}'. "
-                               "module is {}".format(field, e, module))
-
-            try:
-                config[module][FIELDS][field][DTYPE] = STRINGS_TO_DTYPE[dtype]
-            except KeyError:
-                if dtype in NULLS:
-                    config[module][FIELDS][field][DTYPE] = str
-                else:
-                    raise KeyError("Field '{}' has an invalid dtype: '{}'. module is {}".format(field, dtype, module))
-    return config
 
 
 class DictParser:
@@ -250,15 +262,18 @@ class DictParser:
 
     @staticmethod
     def get_dict_keys(dict_to_filter, include_list):
-        return {field: value for field, value in dict_to_filter.items() if field in include_list}
+        return {field: value for field, value in dict_to_filter.items()
+                if field in include_list}
 
     @staticmethod
     def drop_dict_keys(dict_to_filter, exclude_list):
-        return {field: value for field, value in dict_to_filter.items() if not field in exclude_list}
+        return {field: value for field, value in dict_to_filter.items()
+                if not field in exclude_list}
 
     @staticmethod
     def drop_dict_values(dict_to_filter, exclude_list):
-        return {field: value for field, value in dict_to_filter.items() if not value in exclude_list}
+        return {field: value for field, value in dict_to_filter.items()
+                if not value in exclude_list}
 
 
 class XmlList(list):
@@ -327,7 +342,7 @@ class XmlDict(dict):
                 self.update({element.tag: element.text})
 
 
-def test_XmlDict():
+def _test_XmlDict():
     string = b'<?xml version="1.0" encoding="UTF-8" ?>\n<response uri="/crm/private/xml/CustomModule4/insertRecords">' \
              b'<result><message>Record(s) added successfully</message><recorddetail><FL val="Id">1706004000002464015</FL>' \
              b'<FL val="Created Time">2016-09-26 16:15:32</FL><FL val="Modified Time">2016-09-26 16:15:32</FL><FL val="Created By">' \
