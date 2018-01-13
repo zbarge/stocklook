@@ -771,6 +771,7 @@ class GdaxTrailingStop(Thread):
             raise Exception("Existing sell order - "
                             "cannot re-sell: "
                             "{}".format(self.sell_order))
+
         o = GdaxOrder(self.gdax,
                       self.pair,
                       order_type='market',
@@ -795,6 +796,7 @@ class GdaxTrailingStop(Thread):
         Updates GdaxTrailingStop.sell_mark as the price moves up
         Executes GdaxTrailingStop.sell and GdaxTrailingStop.notify when the price
         hits the sell_mark.
+
         :return: (GdaxOrder)
             Reflecting the triggered sale.
             This is also assigned to GdaxTrailingStop.sell_order.

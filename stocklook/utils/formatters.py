@@ -42,6 +42,29 @@ NULLS = ['NA', None, 'None', 'null']
 STRINGS_TO_FALSE = ['no', 'false', 'null', '', 'none', 'na', 'nan', 'nat', '0']
 
 
+def camel_case_to_under_score(x):
+    """
+    CamelCase --> camel_case
+    :param x: (str)
+        The CamelCase string to
+        be converted to pep8.
+    :return: (str)
+        The formatted pep8 string.
+        lower case
+        upper case prefixed with underscore.
+    """
+    string = ''
+    x = str(x)
+    for i, v in enumerate(x):
+        if i == 0 or v.islower():
+            string += v
+        else:
+            string += '_'
+            string += v
+
+    return string.lower()
+
+
 def format_dollar_letter_conversions(value):
     try:
         value = str(value)

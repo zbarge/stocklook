@@ -1,4 +1,5 @@
 from datetime import datetime
+from simplejson.errors import JSONDecodeError
 from time import sleep
 import pandas as pd
 import requests
@@ -44,7 +45,7 @@ def eth_get_chain_stats():
     """
     try:
         return requests.get(ETH_CHAIN_STATS_URL).json()
-    except requests.exceptions.ConnectionError:
+    except (requests.exceptions.ConnectionError, JSONDecodeError):
         sleep(1)
         return eth_get_chain_stats()
 
@@ -126,8 +127,8 @@ def eth_notify_on_block_height(block_no, to_address=None, times_to_ping=1):
         block_diff = block_no - block_height
 
         # Calculate time to next check
-        if block_diff > 10:
-            interval = secs_left * 10
+        if block_diff > 30:
+            interval = secs_left * 30
         elif block_diff < 2:
             interval = secs_left / 3
         else:

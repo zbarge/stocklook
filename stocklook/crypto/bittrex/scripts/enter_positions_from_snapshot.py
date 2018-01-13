@@ -59,4 +59,8 @@ def bittrex_enter_positions_from_snapshot(buy_method=None, source_json=None, bas
     return buys
 
 
-
+if __name__ == '__main__':
+    with open(FILE_PATH, 'r') as fh:
+        bittrex_enter_positions_from_snapshot(
+            source_json=json.load(fh),
+            base_currency=BASE_CURRENCY)

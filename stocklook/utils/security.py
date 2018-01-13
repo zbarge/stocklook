@@ -24,7 +24,10 @@ SOFTWARE.
 import keyring
 from warnings import warn
 
+
 class Credentials:
+    BITTREX = 'bittrex'
+    CRYPTOPIA = 'cryptopia'
     GDAX = 'gdax'
     POLONIEX = 'poloniex'
     GMAIL = 'gmail'
@@ -32,7 +35,9 @@ class Credentials:
     BFX = 'bitfinex'
     KRAKEN = 'kraken'
     GDAX_DB = 'gdax_db'
-    SERVICE_NAMES = [GDAX, POLONIEX, GMAIL, BFX, KRAKEN]
+
+    SERVICE_NAMES = [BITTREX, CRYPTOPIA, GDAX,
+                     POLONIEX, GMAIL, BFX, KRAKEN]
     CONFIG_TO_OBJECT_MAP = dict()
 
     # Used to store multiple variables
@@ -53,6 +58,8 @@ class Credentials:
     def _join_password_items(self, pw_items):
         if not pw_items:
             return pw_items
+        if len(pw_items) == 1:
+            return pw_items[0]
         return self.JOIN_SEP.join(pw_items)
 
     def _split_password_string(self, pw_string):
@@ -128,6 +135,57 @@ class Credentials:
 
     @staticmethod
     def register_config_object_mapping(service_name, map_data):
+        """
+        Registers a map of {CONFIG_KEY: OBJECT_PROPERTY_NAME}
+        for a particular service name.
+
+        Objects that need automatic private access key/secret(s) should
+        register the configuration key names to object property values.
+
+        Doing this lets the Credentials object know where to look in
+        config for a needed key or secret.
+
+        Example:
+        ---------
+
+            from mailyo.config import config
+            API_KEY1 = 'API_KEY1'
+            API_SECRET1 = 'API_SECRET1'
+            API_SVC_NAME1 = 'API_SVC_NAME1'
+
+            creds = Credentials()
+
+            class ApiObj1:
+                creds.register_config_object_mapping(
+                    API_SVC_NAME1,
+                    {
+                    API_KEY1: 'key',
+                    API_SECRET1: 'secret'
+                    }
+
+                )
+                # Registers configuration keys to
+                # object property nammes for ApiObj1
+
+                def __init__(key=None, secret=None):
+                    self.key = key
+                    self.secret = secret
+
+                    if not all((key, secret)):
+                        creds.configure_object_vars(
+                            self, API_SVC_NAME1, 'key', ['secret'])
+                        # Finds api key and secret (or helps user input)
+                        # within config and/or KeyRing.
+
+        :param service_name: (str)
+            The name of the service to register map data to.
+
+        :param map_data: (dict)
+            A mapping of {CONFIG_KEY: OBJECT_PROPERTY_NAME}
+            for the object that will access the service name.
+
+        :return: (None)
+        """
         map_data.update({v: k for k, v in map_data.items()})
         Credentials.CONFIG_TO_OBJECT_MAP.update({service_name: map_data})
 
@@ -188,9 +246,12 @@ class Credentials:
             The username or API key variable name for the :param dest_obj
 
         :param secret_items: (list)
-            A list of one or more secret variable names to assign secret values to.
+            A list of one or more secret :param dest_object property
+             names to assign secret values to.
 
-        :return:
+        :return: (None)
+            The :param dest_object will have matched properties
+            assigned with values found in config and/or KeyRing.
         """
         key_value = getattr(dest_obj, key_name)
 
@@ -247,14 +308,28 @@ class Credentials:
                 [secrets_avail[i] for i in secret_items])
             self.set(service_name, key_value, pw_string)
 
-    def reset_credentials(self, service_name, username, new_pass=None, api_pass=None):
+    def reset_credentials(self, service_name, username, new_secret_items=None):
+        """
+        Removes a username/password from KeyRing
+        and replaces with a new one if desired.
+
+        :param service_name: (str)
+            The service name to remove.
+
+        :param username: (str)
+            The username to remove the password for.
+
+        :param new_secret_items: (list, default None)
+            The new secret item(s) to assign to the username if desired.
+
+        :return: (None)
+        """
         try:
             keyring.delete_password(service_name, username)
         except keyring.errors.PasswordDeleteError:
             pass
 
-        if new_pass is not None:
-            if api_pass is not None:
-                new_pass = new_pass + self.JOIN_SEP + api_pass
+        if new_secret_items:
+            new_pass = self._join_password_items(new_secret_items)
             keyring.set_password(service_name, username, new_pass)
 

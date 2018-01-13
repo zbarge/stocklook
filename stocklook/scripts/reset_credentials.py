@@ -27,11 +27,10 @@ from stocklook.utils.security import Credentials
 
 SERVICE_NAME = Credentials.GMAIL
 USER_NAME = ''
-PASSWORD = ''
-PASSPHRASE = None
-
+SECRET_ITEMS = []
+# List stores PASSWORD, PASSPHRASE
 
 if __name__ == '__main__':
 
     c = Credentials()
-    c.reset_credentials(SERVICE_NAME, USER_NAME, PASSWORD, PASSPHRASE)
+    c.reset_credentials(SERVICE_NAME, USER_NAME, SECRET_ITEMS)
