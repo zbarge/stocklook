@@ -287,10 +287,14 @@ class DatabaseLoadingThread(Thread):
 
 
 class AlchemyDatabase:
-    def __init__(self, engine=None, session_maker=None, declarative_base=None):
+    """
+    Base class for databases holds the
+    engine, sessionmaker, and declarative base.
+    """
+    def __init__(self, engine=None, session_maker=None, base=None):
         self._engine = engine
         self._session_maker = session_maker
-        self._declarative_base = declarative_base
+        self._declarative_base = base
 
     @property
     def engine(self):
@@ -308,6 +312,14 @@ class AlchemyDatabase:
             if self._declarative_base is not None:
                 self._declarative_base.metadata.create_all(bind=self._engine)
         return self._engine
+
+    @property
+    def meta(self):
+        return self._declarative_base.metadata
+
+    @property
+    def tables(self):
+        return self.meta.tables
 
     def get_session(self):
         if self._session_maker is None:

@@ -71,6 +71,19 @@ def camel_case_to_under_score(x):
     return string.lower()
 
 
+def camel_case_to_under_score_dict(_dict):
+    """
+    :param _dict: (dict)
+        A dictionary with camel cased keys.
+
+    :return: (dict)
+        A dictionary with pep8 cased keys.
+        see stocklook.utils.formatters.camel_case_to_under_score
+    """
+    return {camel_case_to_under_score((k)): v
+            for k, v in _dict.items()}
+
+
 def format_dollar_letter_conversions(value):
     """
     Converts a string to float even if it contains illegal characters.

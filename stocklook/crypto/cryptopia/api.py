@@ -200,12 +200,15 @@ class Cryptopia:
     def secure_headers(self, url, post_data):
         """ Creates secure header for cryptopia private api. """
         nonce = str(int(time.time()))
+        post_data = post_data.encode('utf8')
         md5 = hashlib.md5()
         md5.update(post_data)
-        rcb64 = base64.b64encode(md5.digest())
+        rcb64 = base64.b64encode(md5.digest()).decode('utf8')
+
         signature = self.key + "POST" + \
-            urllib.quote_plus(url).lower() + nonce + rcb64
+            urllib.parse.quote_plus(url).lower() + nonce + rcb64
+        signature = signature.encode('utf8')
         sign = base64.b64encode(
             hmac.new(self.secret, signature, hashlib.sha256).digest())
-        header_value = "amx " + self.key + ":" + sign + ":" + nonce
+        header_value = "amx " + self.key + ":" + sign.decode('utf8') + ":" + nonce
         return {'Authorization': header_value, 'Content-Type': 'application/json; charset=utf-8'}
