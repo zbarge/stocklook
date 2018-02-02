@@ -26,6 +26,7 @@ from warnings import warn
 
 
 class Credentials:
+    BITMEX = 'bitmex'
     BITTREX = 'bittrex'
     CRYPTOPIA = 'cryptopia'
     GDAX = 'gdax'

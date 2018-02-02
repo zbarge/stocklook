@@ -60,3 +60,7 @@ def test_ctopia_get_currencies():
 
         db_describe_dict(c_data, 'ctopia_currencies')
         break
+
+def test_ctopia_get_market_history():
+
+    history = api.get_market_history

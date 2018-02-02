@@ -21,6 +21,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+from stocklook.utils.security import Credentials
+from stocklook.config import config, GMAIL_EMAIL, STOCKLOOK_NOTIFY_ADDRESS, GMAIL_PASSWORD
+
+
 class EmailSender:
     """
     Wraps yagmail with stocklook.utils.security.Credentials
@@ -28,10 +32,13 @@ class EmailSender:
     make a free gmail account to use this and set the
     GMAIL_EMAIL via stocklook.config.update_config(dict).
     """
-    def __init__(self, email=None, **kwargs):
+    Credentials.register_config_object_mapping(Credentials.GMAIL, {GMAIL_EMAIL: 'email',
+                                                                   GMAIL_PASSWORD: 'password'})
+    def __init__(self, email=None, password=None, **kwargs):
         self.email = email
         self._kwargs = kwargs
         self._smtp = None
+        self.password = password
 
     @property
     def smtp(self):
