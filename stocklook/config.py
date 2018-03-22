@@ -77,6 +77,9 @@ ENVIRONMENT_VARIABLES = [
 # Variables in this list will be searched
 # for in the os.environment and added to config.
 
+VAR_SYNONYMS = {
+    STOCKLOOK_EMAIL: GMAIL_EMAIL,
+}
 BITMEX_SETTINGS_DIR = 'BITMEX_SETTINGS_DIR'
 
 db_type = 'mysql'
@@ -112,6 +115,7 @@ and passwords in the encrypted facilities provided by the keyring package.
 """
 config.update({var: env.get(var, None)
                for var in ENVIRONMENT_VARIABLES})
+config[GMAIL_EMAIL] = config[STOCKLOOK_EMAIL]
 
 
 def update_config(config_dict):

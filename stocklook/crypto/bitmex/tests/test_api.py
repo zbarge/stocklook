@@ -26,16 +26,9 @@ from time import sleep
 from stocklook.crypto.bitmex.api import BitMEX
 
 
-
-
 def test_api_connection():
     api = BitMEX(symbol='XBTUSD')
-    res = api.ticker_data()
-    #print(res)
-    sleep(10)
-
-
-def test_or_stmt():
-    v = None
-    x = v or 2
-    print(x)
+    funds = api.funds()
+    print("Available funds: {}".format(funds))
+    depth = api.buy()
+    print("Market depth: {}".format(depth))

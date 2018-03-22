@@ -325,8 +325,8 @@ class BitMEXWebsocket():
             self.error(error)
 
     def __reset(self):
-        self.data = {}
-        self.keys = {}
+        self.data = dict()
+        self.keys = dict()
         self.exited = False
         self._error = None
 

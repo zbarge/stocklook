@@ -199,6 +199,7 @@ class BitMEX(object):
     def create_bulk_orders(self, orders):
         """Create multiple orders."""
         for order in orders:
+
             order['clOrdID'] = self.orderIDPrefix + base64.b64encode(uuid.uuid4().bytes).decode('utf8').rstrip('=\n')
             order['symbol'] = self.symbol
             if self.postOnly:

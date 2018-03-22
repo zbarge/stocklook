@@ -27,7 +27,7 @@ from stocklook.utils.security import Credentials
 
 SERVICE_NAME = Credentials.GMAIL
 USER_NAME = ''
-SECRET_ITEMS = []
+SECRET_ITEMS = ['']
 # List stores PASSWORD, PASSPHRASE
 
 if __name__ == '__main__':

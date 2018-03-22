@@ -39,33 +39,21 @@ class EmailSender:
         self._kwargs = kwargs
         self._smtp = None
         self.password = password
+        if not all((email, password)):
+            c = Credentials()
+            c.configure_object_vars(
+                self, c.GMAIL, 'email', ['password'])
+            self._kwargs['password'] = self.password
+
 
     @property
     def smtp(self):
         if self._smtp is None:
             from yagmail import SMTP
-            self.set_credentials()
             self._smtp = SMTP(self.email, **self._kwargs)
         return self._smtp
 
-    def set_credentials(self):
-        pw = self._kwargs.get('password', None)
 
-        if self.email is None:
-            from ..config import config
-            self.email = config.get('GMAIL_EMAIL', None)
-            if pw is None:
-                pw = config.get('GMAIL_PASSWORD', None)
-                if pw is not None:
-                    self._kwargs['password'] = pw
-
-        if not self.email or not pw:
-            # We'll retrieve one or both from secure storage.
-            from .security import Credentials
-            c = Credentials(allow_input=True)
-            pw = c.get(c.GMAIL, username=self.email, api=False)
-            self._kwargs['password'] = pw
-            self.email = c.data[c.GMAIL]
 
 
 def send_message(to_addr, msg, sender=None):
