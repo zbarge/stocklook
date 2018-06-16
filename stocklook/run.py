@@ -1,5 +1,6 @@
 from flask import Flask, g, flash, abort, session, request, url_for, redirect, render_template
 import jinja2, os
+from stocklook.controls.crypto import CryptoController
 
 
 app = Flask('stocklook',
@@ -15,10 +16,6 @@ except RuntimeError as e:
 
 @app.route('/')
 def index():
-    for dirname, subdirs, files in os.walk('/static'):
-        for f in files:
-            print(f)
-    print("walked static dir.")
     return render_template('index.html')
 
 
@@ -27,5 +24,14 @@ def login():
     return "Username, Password:"
 
 
+@app.route('/portfolio')
+def portfolio():
+    return render_template('portfolio.html')
+
+
+@app.route('/orders')
+def orders():
+    return render_template('orders.html')
+
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)

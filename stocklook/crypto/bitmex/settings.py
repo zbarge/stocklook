@@ -28,7 +28,7 @@ import os
 import sys
 
 from stocklook.crypto.bitmex.utils.dotdict import dotdict
-import stocklook.crypto.bitmex._settings_base as baseSettings
+from stocklook.crypto.bitmex import _settings_base as baseSettings
 
 
 def import_path(fullpath):

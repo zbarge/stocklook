@@ -1,3 +1,18 @@
 body{
-    background-color:#7FDBFF;
+    background-color:#DFEAF0;
 }
+
+.main-box{
+    max-width: 1100px;
+    position:relative;
+    left:20%;
+    top:50%;
+}
+
+.main-nav{
+    width:100%;
+    text-color:white;
+    border-style:solid;
+    border-width:2px;
+}
+
