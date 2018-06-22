@@ -25,9 +25,9 @@ from stocklook.utils.security import Credentials
 # You should remove USERNAME/PASSWORD variables
 # after running this script.
 
-SERVICE_NAME = Credentials.GMAIL
+SERVICE_NAME = Credentials.GDAX
 USER_NAME = ''
-SECRET_ITEMS = ['']
+SECRET_ITEMS = []
 # List stores PASSWORD, PASSPHRASE
 
 if __name__ == '__main__':

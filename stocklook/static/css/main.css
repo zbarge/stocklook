@@ -16,3 +16,8 @@ body{
     border-width:2px;
 }
 
+.footer{
+    font-size: 10px;
+    font-style: italic;
+    font-color: grey;
+}

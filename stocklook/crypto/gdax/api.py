@@ -34,7 +34,7 @@ from stocklook.config import config, GDAX_SECRET, GDAX_KEY, GDAX_PASSPHRASE
 from stocklook.utils.timetools import timestamp_to_iso8601, timestamp_from_utc, timeout_check
 from .account import GdaxAccount
 from .product import GdaxProduct, GdaxProducts
-
+from .feeds.memory_client import GdaxMemoryWebSocketClient
 logger = lg.getLogger(__name__)
 
 
@@ -53,7 +53,6 @@ def gdax_call_api(url, method='get', **kwargs):
     :return:
     """
     return call_api(url, method, _api_exception_cls=GdaxAPIError, **kwargs)
-
 
 
 class CoinbaseExchangeAuth(AuthBase):
@@ -172,6 +171,7 @@ class Gdax:
 
         self._coinbase_accounts = None
         self._db = None
+        self._ws = None
 
         if not all([key, secret, passphrase]):
             self._set_credentials()
@@ -251,6 +251,13 @@ class Gdax:
                 for ac in self.get_coinbase_accounts()
             }
         return self._coinbase_accounts
+
+    @property
+    def ws(self):
+        # gdax.feeds.websocket_client.GdaxWebsocketClient
+        if self._ws is None:
+            self._ws = GdaxMemoryWebSocketClient(products=GdaxProducts.LIST)
+        return self._ws
 
     @property
     def db(self):
@@ -760,6 +767,34 @@ class Gdax:
         else:
             ext = 'accounts/{}'.format(account_id)
         return self.get(ext).json()
+
+    def get_balances(self, allow_websocket=True, hide_zero=True):
+        data = dict()
+        if self._ws is not None and allow_websocket:
+            # Avoids polling tickers - faster route via websocket.
+            for account in self.accounts.values():
+                if account.currency == account.USD:
+                    value = account.balance
+                else:
+                    value = self.ws.get_price(account.pair) * account.balance
+                if value == 0 and hide_zero:
+                    continue
+                sub_data = {'symbol': account.pair,
+                            'balance': account.balance,
+                            'value': round(value, 2)}
+                data[sub_data['symbol']] = sub_data
+        else:
+            for account in self.accounts.values():
+                if account.usd_value == 0 and hide_zero:
+                    continue
+                sub_data = {'symbol': account.pair,
+                            'balance': account.balance,
+                            'value': account.usd_value}
+                data[sub_data['symbol']] = sub_data
+        total = sum([int(s['value']) for s in data.values()])
+        for sub in data.values():
+            sub['allocation'] = round(sub['value']/total, 3)
+        return data
 
     def get_total_value(self):
         """
